@@ -16,6 +16,8 @@ machine. Kubernetes is an API, not a remote shell into the cluster's nodes.
   restarts). Expose through CLI --json and MCP.
 - Handle RBAC restrictions without claiming a denied inventory is empty.
 - No cluster mutations, privileged containers, or new dependencies.
+- Use a dedicated low-privilege kubeconfig for MCP use; the K3s server's built-in admin kubeconfig is cluster-admin and should not be distributed to agents. Scope pod lists by namespace wherever possible.
+- Reproducible live smoke test: `bash scripts/test-k3s-inventory.sh` starts an isolated k3d cluster and probes Muxin's CLI, with temporary kubeconfig and cleanup; run only when Docker is available.
 - No assumption that kubectl or a cluster exists on every Muxin install.
 
 ## Stage 2: persistent agent workspaces (requires upstream design agreement)
