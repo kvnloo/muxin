@@ -23,7 +23,7 @@ machine. Kubernetes is an API, not a remote shell into the cluster's nodes.
 ## Stage 2: persistent agent workspaces (requires upstream design agreement)
 
 - Opt-in cluster + namespace, bounded service account and RBAC.
-- Create dedicated Pod/Deployment for each workspace with a persistent volume.
+- Create a dedicated Deployment for each workspace with a pre-existing PVC. K3s's default local-path provisioner pins data to one node; this cannot promise cross-node failover. Use shared/replicated storage when node-loss recovery is required.
 - Route workspace commands through Kubernetes exec, and logs through the Pod API.
 - Preserve workspace identity and files across restarts. Never use ephemeral Pod
   filesystem for a persistent workspace.

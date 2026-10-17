@@ -204,7 +204,7 @@ The MCP counterparts are `kubernetes_job_plan`, `kubernetes_job_create`, `kubern
 
 ### Persistent K3s agent workspaces (PVC-backed)
 
-Requires an **existing** PersistentVolumeClaim and a container image with `/bin/sh`, `sleep`, and tools suitable for UID 1000. Muxin creates a single-replica Deployment with `Recreate` strategy, so Kubernetes can reschedule the workspace without discarding the PVC.
+Requires an **existing** PersistentVolumeClaim and a container image with `/bin/sh`, `sleep`, and tools suitable for UID 1000. Muxin creates a single-replica Deployment with `Recreate` strategy. It can replace a Pod **only where its PVC can attach**. The default K3s `local-path` class is node-local, so it does not provide cross-node storage failover; use portable/replicated storage if that is required.
 
 ```sh
 export KUBECONFIG="$HOME/.kube/k3s-agent-operator.yaml"
