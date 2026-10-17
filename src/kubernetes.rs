@@ -36,6 +36,17 @@ pub struct ClusterStatus {
 }
 
 pub async fn inspect(context: Option<&str>, namespace: Option<&str>) -> Result<ClusterStatus, String> {
+    inspect_with_tools("kubectl", "k3s", context, namespace).await
+}
+
+/// The program arguments stay separate (no shell) for both implementations.
+/// With K3s alone installed, its embedded `k3s kubectl` is a compatible client.
+async fn inspect_with_tools(
+    kubectl: &str,
+    k3s: &str,
+    context: Option<&str>,
+    namespace: Option<&str>,
+) -> Result<ClusterStatus, String> {
     validate_options(context, namespace)?;
 
     // An explicit context is pinned for both calls. Without one, report the
@@ -43,7 +54,7 @@ pub async fn inspect(context: Option<&str>, namespace: Option<&str>) -> Result<C
     let selected = match context {
         Some(name) => name.to_string(),
         None => {
-            let output = run_kubectl(None, &["config", "current-context"]).await?;
+            let output = run_kubectl_with(kubectl, k3s, None, &["config", "current-context"]).await?;
             String::from_utf8(output)
                 .map_err(|_| "kubectl returned an invalid context name.".to_string())?
                 .trim()
@@ -62,8 +73,8 @@ pub async fn inspect(context: Option<&str>, namespace: Option<&str>) -> Result<C
         None => pod_args.push("--all-namespaces"),
     }
     let (node_result, pod_result) = tokio::join!(
-        kubectl_json(&selected, &["get", "nodes", "-o", "json"]),
-        kubectl_json(&selected, &pod_args),
+        kubectl_json(kubectl, k3s, &selected, &["get", "nodes", "-o", "json"]),
+        kubectl_json(kubectl, k3s, &selected, &pod_args),
     );
 
     build_status(selected, namespace, node_result, pod_result)
@@ -145,32 +156,66 @@ fn valid_namespace(value: &str) -> bool {
         && bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
-async fn kubectl_json(context: &str, args: &[&str]) -> Result<Value, String> {
-    let output = run_kubectl(Some(context), args).await?;
+async fn kubectl_json(kubectl: &str, k3s: &str, context: &str, args: &[&str]) -> Result<Value, String> {
+    let output = run_kubectl_with(kubectl, k3s, Some(context), args).await?;
     serde_json::from_slice(&output).map_err(|e| format!("kubectl returned invalid JSON: {e}"))
 }
 
-async fn run_kubectl(context: Option<&str>, args: &[&str]) -> Result<Vec<u8>, String> {
-    let mut command = Command::new("kubectl");
+enum CommandError {
+    Missing,
+    Failed(String),
+}
+
+/// Prefer the standalone Kubernetes client; use K3s' embedded client when
+/// the standalone executable is absent. A real kubectl failure does NOT fall
+/// back to a different client, kubeconfig, or cluster.
+async fn run_kubectl_with(kubectl: &str, k3s: &str, context: Option<&str>, args: &[&str]) -> Result<Vec<u8>, String> {
+    match execute_kubectl(kubectl, false, context, args).await {
+        Ok(output) => Ok(output),
+        Err(CommandError::Missing) => match execute_kubectl(k3s, true, context, args).await {
+            Ok(output) => Ok(output),
+            Err(CommandError::Missing) => Err("Neither kubectl nor k3s was found. Install kubectl or use a machine with K3s and configure kubeconfig.".into()),
+            Err(CommandError::Failed(err)) => Err(err),
+        },
+        Err(CommandError::Failed(err)) => Err(err),
+    }
+}
+
+async fn execute_kubectl(
+    binary: &str,
+    embedded: bool,
+    context: Option<&str>,
+    args: &[&str],
+) -> Result<Vec<u8>, CommandError> {
+    let mut command = Command::new(binary);
+    if embedded {
+        command.arg("kubectl");
+    }
     if let Some(context) = context {
         command.arg("--context").arg(context);
     }
     command.arg("--request-timeout=10s").args(args).kill_on_drop(true);
     let output = tokio::time::timeout(Duration::from_secs(20), command.output())
         .await
-        .map_err(|_| "kubectl took too long (20s).".to_string())?
-        .map_err(|e| format!("Couldn't run kubectl: {e}. Install kubectl and check kubeconfig."))?;
+        .map_err(|_| CommandError::Failed(format!("{binary} took too long (20s).")))?
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                CommandError::Missing
+            } else {
+                CommandError::Failed(format!("Couldn't run {binary}: {e}"))
+            }
+        })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let detail: String = stderr.trim().chars().take(300).collect();
-        return Err(if detail.is_empty() {
-            format!("kubectl exited with {}.", output.status)
+        return Err(CommandError::Failed(if detail.is_empty() {
+            format!("{binary} exited with {}.", output.status)
         } else {
             detail
-        });
+        }));
     }
     if output.stdout.len() > 16 * 1024 * 1024 {
-        return Err("kubectl returned more than 16 MiB; select a namespace.".into());
+        return Err(CommandError::Failed("kubectl returned more than 16 MiB; select a namespace.".into()));
     }
     Ok(output.stdout)
 }
@@ -335,6 +380,48 @@ mod tests {
         ).unwrap();
         assert!(status.pods.is_none(), "malformed pods must be unavailable");
         assert_eq!(status.warnings.len(), 1);
+    }
+
+    /// End-to-end fake K3s executable: verifies prefix, pinned context and
+    /// namespace flags without requiring or touching a real cluster.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn embedded_k3s_client_works_when_kubectl_is_missing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("muxin-k3s-test-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let binary = dir.join("k3s");
+        let script = r#"#!/bin/sh
+if [ "$1" != "kubectl" ]; then exit 17; fi
+shift
+case " $* " in
+  *" config current-context "*) printf 'test-k3s\n' ;;
+  *" get nodes -o json "*) printf '{"items":[{"metadata":{"name":"worker"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}' ;;
+  *" get pods -o json --namespace agents "*) printf '{"items":[{"metadata":{"name":"agent","namespace":"agents"},"status":{"phase":"Running"}}]}' ;;
+  *) exit 19 ;;
+esac
+"#;
+        std::fs::write(&binary, script).unwrap();
+        let mut mode = std::fs::metadata(&binary).unwrap().permissions();
+        mode.set_mode(0o700);
+        std::fs::set_permissions(&binary, mode).unwrap();
+
+        let missing = dir.join("kubectl-not-installed");
+        let status = inspect_with_tools(
+            missing.to_str().unwrap(),
+            binary.to_str().unwrap(),
+            None,
+            Some("agents"),
+        ).await.unwrap();
+        assert_eq!(status.context, "test-k3s");
+        assert_eq!(status.nodes.as_ref().unwrap()[0].ready, "Ready");
+        assert_eq!(status.pods.as_ref().unwrap()[0].name, "agent");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

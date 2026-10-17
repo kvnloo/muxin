@@ -10,7 +10,7 @@ machine. Kubernetes is an API, not a remote shell into the cluster's nodes.
 
 ## Stage 1: read-only cluster inventory
 
-- Use a local kubectl executable with the user's existing kubeconfig.
+- Use local kubectl or the embedded `k3s kubectl` when standalone kubectl is unavailable; respect the user's kubeconfig. Never silently retry a failed standalone kubectl against another client.
 - Allow explicit context and namespace selection; never store tokens or alter context.
 - List node readiness and pods (namespace, phase, assigned node, ready containers,
   restarts). Expose through CLI --json and MCP.

@@ -152,7 +152,7 @@ Runners installed in the usual places are discovered automatically: `~/actions-r
 
 ## Kubernetes / K3s (read-only)
 
-Muxin can inspect a Kubernetes or K3s cluster using the `kubectl` and kubeconfig you already have. It does not store cluster credentials, create workloads or add cluster nodes as SSH machines.
+Muxin can inspect a Kubernetes or K3s cluster using the kubeconfig you already have. It prefers `kubectl`, or uses the `k3s kubectl` client when the standalone binary is not installed. It does not store cluster credentials, create workloads or add cluster nodes as SSH machines.
 
 ```sh
 muxin k8s --json                         # current kubeconfig context
