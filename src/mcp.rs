@@ -289,6 +289,7 @@ async fn dispatch(engine: &Arc<Engine>, session: &Session, name: &str, a: Value)
         "list_runners" => ok(json!({ "runners": api::runners(engine, args(a)?).await? })),
         "list_jobs" => ok(api::jobs(engine, Surface::Mcp).await?),
         "check_machines" => ok(json!({ "machines": api::check(engine, args(a)?).await? })),
+        "kubernetes_status" => ok(api::kubernetes(args(a)?).await?),
         "add_machine" => ok(api::add_machine(engine, args(a)?, Surface::Mcp).await?),
         "remove_machine" => ok(json!({ "removed": api::remove_machine(engine, args(a)?).await? })),
         "rename_machine" => ok(json!({ "renamed": api::rename_machine(engine, args(a)?).await? })),
@@ -434,6 +435,15 @@ pub fn tools() -> Vec<Value> {
             "description": "Run the read-only machine check now (over ssh, or locally for host \"local\"): CPU, memory, disk, uptime, installed runners and whether they're running. One machine or all. Changes nothing on the machines.",
             "inputSchema": schema(json!({ "machine_id": { "type": "string", "description": "Only this machine; omit for all." } }), &[]),
             "annotations": annotations("Check machines", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_status",
+            "description": "Read-only Kubernetes or K3s cluster inventory through local kubectl and the user's kubeconfig. Returns node readiness and pods across namespaces with phase, container readiness, restarts and placement. Changes nothing in the cluster. Requires kubectl and existing kubeconfig access.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string", "description": "Kubeconfig context (default: current context)." },
+                "namespace": { "type": "string", "description": "Only pods in this namespace (default: all namespaces)." }
+            }), &[]),
+            "annotations": annotations("Kubernetes cluster status", true, false, true, true),
         }),
         json!({
             "name": "add_machine",
@@ -1214,7 +1224,7 @@ mod tests {
     #[test]
     fn tool_schemas_are_well_formed() {
         let tools = tools();
-        assert_eq!(tools.len(), 89);
+        assert_eq!(tools.len(), 90);
         let mut names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         names.sort();
         names.dedup();

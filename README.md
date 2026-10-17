@@ -150,6 +150,20 @@ A machine that runs on another one is shown under it: a VM or container reached 
 
 Runners installed in the usual places are discovered automatically: `~/actions-runner*`, `~/actions-runner/*`, `~/runners/*`, `/opt/actions-runner*` and `C:\actions-runner\*`. A runner is found from its `.runner` file and its running `Runner.Listener` / `Runner.Worker` processes.
 
+## Kubernetes / K3s (read-only)
+
+Muxin can inspect a Kubernetes or K3s cluster using the `kubectl` and kubeconfig you already have. It does not store cluster credentials, create workloads or add cluster nodes as SSH machines.
+
+```sh
+muxin k8s --json                         # current kubeconfig context
+muxin k3s --context homelab              # same command, K3s alias
+muxin k8s --namespace agents --json      # pods in one namespace
+```
+
+The `kubernetes_status` MCP tool accepts optional `context` and `namespace` fields and returns the same node/pod inventory. Node or pod listing may be denied by your Kubernetes RBAC rules; in that case the other list is still returned with a warning. No cluster write permissions are needed.
+
+This is inventory only. Pod-based workspaces, scheduling and UI integration are not implemented yet.
+
 ## GitHub
 
 Watch an org or a repo in Settings, or with `muxin watch acme` (or `acme/api`). Muxin then reads live runner status (online, busy) and the queued and running jobs of the most recently pushed repos.

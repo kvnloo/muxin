@@ -6,6 +6,7 @@ mod demo;
 mod fleet;
 mod github;
 mod mcp;
+mod kubernetes;
 mod ops;
 mod probe;
 #[cfg(feature = "gui")]
@@ -137,6 +138,9 @@ enum Command {
     Session(SessionCommand),
     /// Run the MCP server on stdio for AI agents (Claude Code, Codex, ...)
     Mcp(McpArgs),
+    /// Read-only Kubernetes or K3s nodes and pods from kubeconfig
+    #[command(alias = "k3s")]
+    K8s(K8sArgs),
     /// Check every machine once and print a report
     Check(CheckArgs),
     /// Write a starter config.toml
@@ -220,6 +224,18 @@ struct AgentArgs {
     /// Print machine-readable JSON on stdout (errors as {"error": {...}})
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Args)]
+struct K8sArgs {
+    #[command(flatten)]
+    agent: AgentArgs,
+    /// Kubeconfig context (default: current context)
+    #[arg(long)]
+    context: Option<String>,
+    /// Only pods in this namespace (default: all namespaces)
+    #[arg(long)]
+    namespace: Option<String>,
 }
 
 #[derive(Args)]
@@ -1609,6 +1625,10 @@ fn main() -> ExitCode {
             }
         }
         Some(Command::Mcp(a)) => mcp(a, &runtime),
+        Some(Command::K8s(a)) => {
+            let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };
+            run(&runtime, &a.agent, async move |_e| api::kubernetes(req).await, cli::kubernetes)
+        },
         Some(Command::Check(args)) => {
             let _guard = runtime.enter();
             let engine = Engine::new(args.common.paths(), args.demo);

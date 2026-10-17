@@ -10,6 +10,25 @@ use crate::api::{
 };
 use crate::util;
 
+pub fn kubernetes(cluster: &crate::kubernetes::ClusterStatus) -> String {
+    let ready = cluster.nodes.iter().filter(|n| n.ready == "Ready").count();
+    let mut out = format!("Kubernetes: {}  ·  pods: {}\n{} nodes ({} ready), {} pods\n", cluster.context, cluster.namespace, cluster.nodes.len(), ready, cluster.pods.len());
+    if !cluster.nodes.is_empty() {
+        let rows: Vec<Vec<String>> = cluster.nodes.iter().map(|n| vec![n.name.clone(), n.ready.clone()]).collect();
+        out.push_str("\nNodes:\n");
+        out.push_str(&table(&["NODE", "STATUS"], &rows));
+    }
+    if !cluster.pods.is_empty() {
+        let rows: Vec<Vec<String>> = cluster.pods.iter().map(|p| vec![p.namespace.clone(), p.name.clone(), p.node.clone().unwrap_or_else(|| "—".into()), p.phase.clone(), format!("{}/{}", p.ready, p.containers), p.restarts.to_string()]).collect();
+        out.push_str("\nPods:\n");
+        out.push_str(&table(&["NAMESPACE", "POD", "NODE", "PHASE", "READY", "RESTARTS"], &rows));
+    }
+    for warning in &cluster.warnings {
+        out.push_str(&format!("\nWarning: {warning}\n"));
+    }
+    out
+}
+
 pub fn status(s: &StatusResponse) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{}", s.summary);
