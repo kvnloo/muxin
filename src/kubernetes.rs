@@ -8,6 +8,9 @@ use serde_json::Value;
 use tokio::process::Command;
 
 mod workloads;
+mod jobs;
+pub use jobs::{JobRequest, JobReference, JobPlan, JobAction, JobStatus};
+pub use jobs::{plan_job, create_job, job_status, delete_job};
 pub use workloads::{Event, Events, PodLogs, Workload, Workloads};
 pub use workloads::{demo_events, demo_logs, demo_workloads, inspect_events, inspect_logs, inspect_workloads};
 
