@@ -236,6 +236,26 @@ pub async fn kubernetes_space_delete(engine: &Arc<Engine>, req: crate::kubernete
     crate::kubernetes::delete_space(&req, engine.is_demo()).await.map_err(ApiError::invalid)
 }
 
+
+/// Names of local kubeconfig contexts; never includes raw kubeconfig contents.
+pub async fn kubernetes_contexts(engine: &Arc<Engine>) -> ApiResult<crate::kubernetes::Contexts> {
+    if engine.is_demo() {
+        Ok(crate::kubernetes::demo_contexts())
+    } else {
+        crate::kubernetes::list_contexts().await.map_err(ApiError::invalid)
+    }
+}
+
+/// Kubernetes diagnostic triage across nodes, pods, controllers, and events.
+pub async fn kubernetes_diagnostics(engine: &Arc<Engine>, req: KubernetesRequest) -> ApiResult<crate::kubernetes::Diagnostics> {
+    let value = if engine.is_demo() {
+        crate::kubernetes::demo_diagnostics(req.namespace.as_deref())
+    } else {
+        crate::kubernetes::diagnose(req.context.as_deref(), req.namespace.as_deref()).await
+    };
+    value.map_err(ApiError::invalid)
+}
+
 // ---------------------------------------------------------------------------
 // Requests. Doc comments here double as the tool documentation.
 

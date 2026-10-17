@@ -10,6 +10,28 @@ use crate::api::{
 };
 use crate::util;
 
+pub fn kubernetes_contexts(contexts: &crate::kubernetes::Contexts) -> String {
+    let mut out = format!("Current: {}\n", contexts.current.as_deref().unwrap_or("(none)"));
+    for context in &contexts.names {
+        out.push_str(&format!("  {}{}\n",
+            if contexts.current.as_deref() == Some(context) { "* " } else { "  " }, context));
+    }
+    for warn in &contexts.warnings { out.push_str(&format!("Warning: {warn}\n")); }
+    out
+}
+
+pub fn kubernetes_diagnostics(view: &crate::kubernetes::Diagnostics) -> String {
+    let mut out = format!("Kubernetes {} / {} — {}: {}\n",
+        view.context, view.namespace, view.state, view.summary);
+    for alert in &view.alerts {
+        out.push_str(&format!("[{}] {} {}{} — {}\n", alert.severity, alert.source,
+            alert.namespace.as_ref().map(|n| format!("{n}/")).unwrap_or_default(),
+            alert.name, alert.detail));
+    }
+    for warning in &view.warnings { out.push_str(&format!("Coverage gap: {warning}\n")); }
+    out
+}
+
 pub fn kubernetes_space_plan(plan: &crate::kubernetes::SpacePlan) -> String {
     format!("Kubernetes workspace {} / {} / {} (PVC {})\n{}\n{}\n",
         plan.context, plan.namespace, plan.name, plan.claim,
@@ -119,9 +141,11 @@ pub fn kubernetes(cluster: &crate::kubernetes::ClusterStatus) -> String {
             n.cpu_allocatable.clone().unwrap_or_else(|| "—".into()),
             n.memory_allocatable.clone().unwrap_or_else(|| "—".into()),
             n.architecture.clone().unwrap_or_else(|| "—".into()),
+            n.extended_resources.iter().map(|(k,v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "),
+            n.pressures.join(", "),
         ]).collect();
         out.push_str("\nNodes (CPU and memory are allocatable, not free):\n");
-        out.push_str(&table(&["NODE", "STATUS", "SCHEDULABLE", "CPU", "MEMORY", "ARCH"], &rows));
+        out.push_str(&table(&["NODE", "STATUS", "SCHEDULABLE", "CPU", "MEMORY", "ARCH", "EXTENDED RESOURCES", "PRESSURE"], &rows));
     }
     if let Some(pods) = cluster.pods.as_ref().filter(|pods| !pods.is_empty()) {
         let rows: Vec<Vec<String>> = pods.iter().map(|p| vec![p.namespace.clone(), p.name.clone(), p.node.clone().unwrap_or_else(|| "—".into()), p.phase.clone(), p.reason.clone().unwrap_or_else(|| "—".into()), format!("{}/{}", p.ready, p.containers), p.restarts.to_string()]).collect();

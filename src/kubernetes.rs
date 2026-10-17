@@ -2,6 +2,7 @@
 //! No cluster credentials are stored and no workload is changed.
 
 use std::time::Duration;
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -10,6 +11,8 @@ use tokio::process::Command;
 mod workloads;
 mod jobs;
 mod spaces;
+mod diagnostics;
+pub use diagnostics::{Contexts, Alert, Diagnostics, demo_contexts, demo_diagnostics, list_contexts, diagnose};
 pub use spaces::{SpaceRequest, SpaceRef, SpaceExec, SpacePlan, SpaceInfo, SpaceList, SpaceAction, SpaceOutput};
 pub use spaces::{plan_space, create_space, list_spaces, space_status, delete_space, execute_space};
 pub use jobs::{JobRequest, JobReference, JobPlan, JobAction, JobStatus};
@@ -30,6 +33,15 @@ pub struct Node {
     pub memory_allocatable: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub architecture: Option<String>,
+    /// Device/plugin resources such as nvidia.com/gpu and MIG slices, not free capacity.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub extended_resources: BTreeMap<String, String>,
+    /// NoExecute, NoSchedule, and PreferNoSchedule taints from spec.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub taints: Vec<String>,
+    /// True MemoryPressure, DiskPressure, or PIDPressure conditions.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pressures: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -146,8 +158,8 @@ pub fn demo_status(context: Option<&str>, namespace: Option<&str>) -> Result<Clu
         context: "demo".into(),
         namespace: namespace.unwrap_or("all").into(),
         nodes: Some(vec![
-            Node { name: "control-1".into(), ready: "Ready".into(), schedulable: true, cpu_allocatable: Some("4".into()), memory_allocatable: Some("8Gi".into()), architecture: Some("amd64".into()) },
-            Node { name: "worker-1".into(), ready: "Ready".into(), schedulable: true, cpu_allocatable: Some("8".into()), memory_allocatable: Some("16Gi".into()), architecture: Some("amd64".into()) },
+            Node { name: "control-1".into(), ready: "Ready".into(), schedulable: true, cpu_allocatable: Some("4".into()), memory_allocatable: Some("8Gi".into()), architecture: Some("amd64".into()), extended_resources: BTreeMap::new(), taints: vec![], pressures: vec![] },
+            Node { name: "worker-1".into(), ready: "Ready".into(), schedulable: true, cpu_allocatable: Some("8".into()), memory_allocatable: Some("16Gi".into()), architecture: Some("amd64".into()), extended_resources: BTreeMap::from([("nvidia.com/gpu".into(), "1".into())]), taints: vec![], pressures: vec![] },
         ]),
         pods: Some(pods.into_iter().filter(|pod| namespace.is_none_or(|n| n == pod.namespace)).collect()),
         warnings: Vec::new(),
@@ -268,7 +280,33 @@ fn parse_nodes(data: &Value) -> Result<Vec<Node>, String> {
             Some("False") => "NotReady",
             _ => "Unknown",
         };
+        let extended_resources = entry["status"]["allocatable"].as_object().map(|resources| {
+            resources.iter().filter_map(|(key, value)| {
+                if key.contains('/') {
+                    value.as_str().map(|quantity| (key.to_string(), quantity.to_string()))
+                } else {
+                    None
+                }
+            }).collect::<BTreeMap<String, String>>()
+        }).unwrap_or_default();
+        let taints = entry["spec"]["taints"].as_array().map(|taints| taints.iter().filter_map(|t| {
+            let key = t["key"].as_str()?;
+            let effect = t["effect"].as_str().unwrap_or("NoSchedule");
+            let value = t["value"].as_str().unwrap_or("");
+            Some(if value.is_empty() { format!("{key}:{effect}") } else { format!("{key}={value}:{effect}") })
+        }).collect::<Vec<String>>()).unwrap_or_default();
+        let pressures = entry["status"]["conditions"].as_array().map(|conditions| {
+            conditions.iter().filter_map(|condition| {
+                let kind = condition["type"].as_str()?;
+                (condition["status"] == "True" &&
+                    matches!(kind, "MemoryPressure" | "DiskPressure" | "PIDPressure"))
+                    .then(|| kind.to_string())
+            }).collect::<Vec<String>>()
+        }).unwrap_or_default();
         result.push(Node {
+            extended_resources,
+            taints,
+            pressures,
             name,
             ready: ready.into(),
             schedulable: entry["spec"]["unschedulable"].as_bool() != Some(true),
@@ -361,6 +399,22 @@ mod tests {
         assert_eq!(nodes[0].architecture.as_deref(), Some("amd64"));
         assert_eq!(nodes[1].ready, "NotReady");
         assert!(nodes[1].schedulable);
+    }
+
+    #[test]
+    fn gpu_resources_and_node_pressure_are_distinct_from_available_capacity() {
+        let nodes = parse_nodes(&json!({"items": [{
+            "metadata": {"name":"gpu-1"},
+            "status": {
+                "conditions":[{"type":"Ready","status":"True"}, {"type":"MemoryPressure","status":"True"}],
+                "allocatable": {"cpu":"8", "nvidia.com/gpu":"2", "nvidia.com/mig-1g.5gb":"3"}
+            },
+            "spec": {"taints":[{"key":"workload","value":"gpu","effect":"NoSchedule"}]}
+        }]})).unwrap();
+        assert_eq!(nodes[0].extended_resources["nvidia.com/gpu"], "2");
+        assert_eq!(nodes[0].extended_resources["nvidia.com/mig-1g.5gb"], "3");
+        assert_eq!(nodes[0].pressures, vec!["MemoryPressure"]);
+        assert_eq!(nodes[0].taints, vec!["workload=gpu:NoSchedule"]);
     }
 
     #[test]

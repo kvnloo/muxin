@@ -290,6 +290,8 @@ async fn dispatch(engine: &Arc<Engine>, session: &Session, name: &str, a: Value)
         "list_jobs" => ok(api::jobs(engine, Surface::Mcp).await?),
         "check_machines" => ok(json!({ "machines": api::check(engine, args(a)?).await? })),
         "kubernetes_status" => ok(api::kubernetes(engine, args(a)?).await?),
+        "kubernetes_contexts" => ok(api::kubernetes_contexts(engine).await?),
+        "kubernetes_diagnostics" => ok(api::kubernetes_diagnostics(engine, args(a)?).await?),
         "kubernetes_workloads" => ok(api::kubernetes_workloads(engine, args(a)?).await?),
         "kubernetes_events" => ok(api::kubernetes_events(engine, args(a)?).await?),
         "kubernetes_logs" => ok(api::kubernetes_logs(engine, args(a)?).await?),
@@ -448,6 +450,20 @@ pub fn tools() -> Vec<Value> {
             "description": "Run the read-only machine check now (over ssh, or locally for host \"local\"): CPU, memory, disk, uptime, installed runners and whether they're running. One machine or all. Changes nothing on the machines.",
             "inputSchema": schema(json!({ "machine_id": { "type": "string", "description": "Only this machine; omit for all." } }), &[]),
             "annotations": annotations("Check machines", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_contexts",
+            "description": "Read-only kubeconfig context discovery (names and current context only). Does not expose kubeconfig certificates, tokens or users, does not switch current context, and never modifies cluster resources.",
+            "inputSchema": schema(json!({}), &[]),
+            "annotations": annotations("Kubernetes contexts", true, false, true, false),
+        }),
+        json!({
+            "name": "kubernetes_diagnostics",
+            "description": "Read-only K3s/Kubernetes fleet triage. Aggregates unhealthy or cordoned nodes, memory/disk/PID pressure, failing Pods, controller replica gaps, failed Jobs and recent warning events. Marks incomplete RBAC coverage as partial rather than healthy.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" }
+            }), &[]),
+            "annotations": annotations("Kubernetes diagnostics", true, false, true, true),
         }),
         json!({
             "name": "kubernetes_status",
@@ -1379,7 +1395,7 @@ mod tests {
     #[test]
     fn tool_schemas_are_well_formed() {
         let tools = tools();
-        assert_eq!(tools.len(), 103);
+        assert_eq!(tools.len(), 105);
         let mut names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         names.sort();
         names.dedup();

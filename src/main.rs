@@ -242,6 +242,10 @@ struct K8sArgs {
 
 #[derive(Subcommand)]
 enum K8sAction {
+    /// List kubeconfig context names only (never credentials)
+    Contexts,
+    /// Aggregate node, pod, workload and event health without cluster mutation
+    Diagnose,
     /// Inspect deployments, statefulsets, daemonsets and jobs
     Workloads,
     /// Recent Kubernetes events (default 100, max 200)
@@ -1740,6 +1744,11 @@ fn main() -> ExitCode {
             None => {
                 let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };
                 run(&runtime, &a.agent, async move |e| api::kubernetes(&e, req).await, cli::kubernetes)
+            }
+            Some(K8sAction::Contexts) => run(&runtime, &a.agent, async move |e| api::kubernetes_contexts(&e).await, cli::kubernetes_contexts),
+            Some(K8sAction::Diagnose) => {
+                let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };
+                run(&runtime, &a.agent, async move |e| api::kubernetes_diagnostics(&e, req).await, cli::kubernetes_diagnostics)
             }
             Some(K8sAction::Workloads) => {
                 let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };

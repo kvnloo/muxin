@@ -209,7 +209,7 @@ pub fn plan_space(req: &SpaceRequest) -> Result<SpacePlan, String> {
     Ok(SpacePlan {
         context: req.context.clone(), namespace: req.namespace.clone(),
         name: req.name.clone(), claim: req.claim.clone(), manifest,
-        next: "Provide an existing PVC; after review, use confirm=true (--yes). Muxin creates a Deployment, never the PVC. Image must include /bin/sh and sleep and run as UID 1000.".into()
+        next: "Provide an existing PVC; after review, use confirm=true (--yes). The Deployment recreates Pods, but node-local K3s local-path PVCs cannot move data to a different node. Cross-node failover requires portable/replicated storage. The image must include /bin/sh and sleep and run as UID 1000.".into()
     })
 }
 
@@ -235,10 +235,16 @@ pub async fn create_space(req: &SpaceRequest, demo: bool) -> Result<SpaceAction,
     {
         return Err("The referenced PVC is missing, wrong, or being deleted.".into());
     }
+    let storage_warning = if pvc["spec"]["storageClassName"] == "local-path"
+        || pvc["metadata"]["annotations"]["volume.kubernetes.io/storage-provisioner"] == "rancher.io/local-path" {
+        " WARNING: K3s local-path storage is node-local; Pod rescheduling cannot move its data to a different node."
+    } else {
+        ""
+    };
     let bytes = serde_json::to_vec(&plan.manifest).map_err(|e| e.to_string())?;
     let stdout = kubectl_with_input(&context, &["create", "-f", "-"], &bytes).await?;
     Ok(SpaceAction { context, namespace: plan.namespace, name: plan.name,
-        action: "created".into(), details: String::from_utf8_lossy(&stdout).trim().into(),
+        action: "created".into(), details: format!("{}{}", String::from_utf8_lossy(&stdout).trim(), storage_warning),
         claim_preserved: true })
 }
 
