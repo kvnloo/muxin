@@ -35,14 +35,7 @@ pub struct ClusterStatus {
 }
 
 pub async fn inspect(context: Option<&str>, namespace: Option<&str>) -> Result<ClusterStatus, String> {
-    if let Some(namespace) = namespace {
-        if !valid_namespace(namespace) {
-            return Err("Namespace must be a Kubernetes DNS label (up to 63 lowercase letters, digits or hyphens).".into());
-        }
-    }
-    if context.is_some_and(|name| name.trim().is_empty()) {
-        return Err("Context cannot be empty.".into());
-    }
+    validate_options(context, namespace)?;
 
     // An explicit context is pinned for both calls. Without one, report the
     // current context instead of silently labelling it "default".
@@ -99,6 +92,37 @@ pub async fn inspect(context: Option<&str>, namespace: Option<&str>) -> Result<C
         nodes,
         pods,
         warnings,
+    })
+}
+
+fn validate_options(context: Option<&str>, namespace: Option<&str>) -> Result<(), String> {
+    if let Some(namespace) = namespace {
+        if !valid_namespace(namespace) {
+            return Err("Namespace must be a Kubernetes DNS label (up to 63 lowercase letters, digits or hyphens).".into());
+        }
+    }
+    if context.is_some_and(|name| name.trim().is_empty()) {
+        return Err("Context cannot be empty.".into());
+    }
+    Ok(())
+}
+
+/// Sample cluster for Muxin's --demo mode. Never contacts kubectl.
+pub fn demo_status(context: Option<&str>, namespace: Option<&str>) -> Result<ClusterStatus, String> {
+    validate_options(context, namespace)?;
+    let pods = vec![
+        Pod { namespace: "agents".into(), name: "agent-worker".into(), node: Some("worker-1".into()), phase: "Running".into(), ready: 1, containers: 1, restarts: 0 },
+        Pod { namespace: "kube-system".into(), name: "coredns".into(), node: Some("worker-1".into()), phase: "Running".into(), ready: 1, containers: 1, restarts: 1 },
+    ];
+    Ok(ClusterStatus {
+        context: "demo".into(),
+        namespace: namespace.unwrap_or("all").into(),
+        nodes: vec![
+            Node { name: "control-1".into(), ready: "Ready".into() },
+            Node { name: "worker-1".into(), ready: "Ready".into() },
+        ],
+        pods: pods.into_iter().filter(|pod| namespace.is_none_or(|n| n == pod.namespace)).collect(),
+        warnings: Vec::new(),
     })
 }
 
@@ -247,6 +271,16 @@ mod tests {
     fn malformed_lists_are_not_reported_as_empty() {
         assert!(parse_nodes(&json!({})).is_err());
         assert!(parse_pods(&json!({"items": {}})).is_err());
+    }
+
+    #[test]
+    fn demo_uses_only_sample_data_even_with_real_context_name() {
+        let status = demo_status(Some("production"), Some("agents")).unwrap();
+        assert_eq!(status.context, "demo");
+        assert_eq!(status.nodes.len(), 2);
+        assert_eq!(status.pods.len(), 1);
+        assert_eq!(status.pods[0].namespace, "agents");
+        assert!(demo_status(None, Some("--all-namespaces")).is_err());
     }
 
     #[test]

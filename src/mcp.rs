@@ -289,7 +289,7 @@ async fn dispatch(engine: &Arc<Engine>, session: &Session, name: &str, a: Value)
         "list_runners" => ok(json!({ "runners": api::runners(engine, args(a)?).await? })),
         "list_jobs" => ok(api::jobs(engine, Surface::Mcp).await?),
         "check_machines" => ok(json!({ "machines": api::check(engine, args(a)?).await? })),
-        "kubernetes_status" => ok(api::kubernetes(args(a)?).await?),
+        "kubernetes_status" => ok(api::kubernetes(engine, args(a)?).await?),
         "add_machine" => ok(api::add_machine(engine, args(a)?, Surface::Mcp).await?),
         "remove_machine" => ok(json!({ "removed": api::remove_machine(engine, args(a)?).await? })),
         "rename_machine" => ok(json!({ "renamed": api::rename_machine(engine, args(a)?).await? })),
@@ -1240,6 +1240,18 @@ mod tests {
             assert!(t["annotations"]["readOnlyHint"].is_boolean());
             assert_eq!(t["inputSchema"]["additionalProperties"], false, "{name}");
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn kubernetes_tool_uses_demo_without_touching_real_cluster() {
+        let engine = demo();
+        let response = call_tool(&engine, &Session::default(), "kubernetes_status", json!({
+            "context": "production",
+            "namespace": "agents",
+        })).await;
+        assert_eq!(response["isError"], false, "{response}");
+        assert_eq!(response["structuredContent"]["context"], "demo");
+        assert_eq!(response["structuredContent"]["pods"].as_array().unwrap().len(), 1);
     }
 
     #[test]

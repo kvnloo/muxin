@@ -1627,7 +1627,7 @@ fn main() -> ExitCode {
         Some(Command::Mcp(a)) => mcp(a, &runtime),
         Some(Command::K8s(a)) => {
             let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };
-            run(&runtime, &a.agent, async move |_e| api::kubernetes(req).await, cli::kubernetes)
+            run(&runtime, &a.agent, async move |e| api::kubernetes(&e, req).await, cli::kubernetes)
         },
         Some(Command::Check(args)) => {
             let _guard = runtime.enter();
