@@ -164,15 +164,15 @@ The `kubernetes_status` MCP tool accepts optional `context` and `namespace` fiel
 
 ### Workloads, events and logs (CLI and MCP)
 
-\`\`\`sh
-muxin k8s --namespace agents workloads --json
-muxin k8s --namespace agents events --limit 50 --json
-muxin k8s --namespace agents logs agent-worker --tail 100 --json
+```sh
+muxin k8s --json --namespace agents workloads
+muxin k8s --json --namespace agents events --limit 50
+muxin k8s --json --namespace agents logs agent-worker --tail 100
 muxin k8s --namespace agents logs agent-worker --previous --container coder
-\`\`\`
+```
 
-The MCP tools \`kubernetes_workloads\`, \`kubernetes_events\`, and
-\`kubernetes_logs\` use the same contexts and read-only Kubernetes API.
+The MCP tools `kubernetes_workloads`, `kubernetes_events`, and
+`kubernetes_logs` use the same contexts and read-only Kubernetes API.
 Workload inventory counts each controller's own readiness semantics (a Job's
 success count is not a Deployment's ready replica count). Denied resource
 kinds produce warnings rather than silently claiming none exist. Pod logs
