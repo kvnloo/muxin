@@ -9,6 +9,9 @@ use tokio::process::Command;
 
 mod workloads;
 mod jobs;
+mod spaces;
+pub use spaces::{SpaceRequest, SpaceRef, SpaceExec, SpacePlan, SpaceInfo, SpaceList, SpaceAction, SpaceOutput};
+pub use spaces::{plan_space, create_space, list_spaces, space_status, delete_space, execute_space};
 pub use jobs::{JobRequest, JobReference, JobPlan, JobAction, JobStatus};
 pub use jobs::{plan_job, create_job, job_status, delete_job};
 pub use workloads::{Event, Events, PodLogs, Workload, Workloads};

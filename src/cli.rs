@@ -10,6 +10,43 @@ use crate::api::{
 };
 use crate::util;
 
+pub fn kubernetes_space_plan(plan: &crate::kubernetes::SpacePlan) -> String {
+    format!("Kubernetes workspace {} / {} / {} (PVC {})\n{}\n{}\n",
+        plan.context, plan.namespace, plan.name, plan.claim,
+        serde_json::to_string_pretty(&plan.manifest).unwrap_or_default(), plan.next)
+}
+
+pub fn kubernetes_space_action(action: &crate::kubernetes::SpaceAction) -> String {
+    format!("Kubernetes workspace {}: {} in {} / {}\n{}\nPVC preserved: {}\n",
+        action.action, action.name, action.context, action.namespace, action.details, action.claim_preserved)
+}
+
+pub fn kubernetes_space_list(list: &crate::kubernetes::SpaceList) -> String {
+    let rows: Vec<Vec<String>> = list.workspaces.iter().map(|s| vec![
+        s.name.clone(), s.claim.clone(), format!("{}/{}", s.ready, s.desired),
+        s.pod.clone().unwrap_or_else(|| "—".into()),
+        s.node.clone().unwrap_or_else(|| "—".into())
+    ]).collect();
+    if rows.is_empty() {
+        return format!("No Muxin Kubernetes workspaces in {} / {}.\n", list.context, list.namespace);
+    }
+    table(&["NAME", "PVC", "READY", "POD", "NODE"], &rows)
+}
+
+pub fn kubernetes_space_info(space: &crate::kubernetes::SpaceInfo) -> String {
+    format!("{} / {}\nPVC: {}\nReady: {}/{}\nPod: {}\nNode: {}\n",
+        space.namespace, space.name, space.claim, space.ready, space.desired,
+        space.pod.as_deref().unwrap_or("pending"), space.node.as_deref().unwrap_or("pending"))
+}
+
+pub fn kubernetes_space_output(result: &crate::kubernetes::SpaceOutput) -> String {
+    let mut text = format!("{}\n", result.stdout);
+    if !result.stderr.is_empty() { text.push_str(&format!("stderr:\n{}\n", result.stderr)); }
+    if result.truncated { text.push_str("(Output truncated.)\n"); }
+    text.push_str(&format!("exit code: {}\n", result.exit_code.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into())));
+    text
+}
+
 pub fn kubernetes_job_plan(plan: &crate::kubernetes::JobPlan) -> String {
     let text = serde_json::to_string_pretty(&plan.manifest).unwrap_or_default();
     format!("Kubernetes Job plan {} / {} / {}\n{}\n\n{}\n", plan.context, plan.namespace, plan.name, text, plan.next)

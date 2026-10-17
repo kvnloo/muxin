@@ -209,6 +209,33 @@ pub async fn kubernetes_job_delete(engine: &Arc<Engine>, req: crate::kubernetes:
     crate::kubernetes::delete_job(&req, engine.is_demo()).await.map_err(ApiError::invalid)
 }
 
+
+/// PVC-backed Kubernetes workspace actions. These are separate from the
+/// existing SSH-machine workspaces; Deployments are the source of truth.
+pub fn kubernetes_space_plan(req: crate::kubernetes::SpaceRequest) -> ApiResult<crate::kubernetes::SpacePlan> {
+    crate::kubernetes::plan_space(&req).map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_space_create(engine: &Arc<Engine>, req: crate::kubernetes::SpaceRequest) -> ApiResult<crate::kubernetes::SpaceAction> {
+    crate::kubernetes::create_space(&req, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_space_list(engine: &Arc<Engine>, req: crate::kubernetes::SpaceRef) -> ApiResult<crate::kubernetes::SpaceList> {
+    crate::kubernetes::list_spaces(&req.context, &req.namespace, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_space_status(engine: &Arc<Engine>, req: crate::kubernetes::SpaceRef) -> ApiResult<crate::kubernetes::SpaceInfo> {
+    crate::kubernetes::space_status(&req, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_space_exec(engine: &Arc<Engine>, req: crate::kubernetes::SpaceExec) -> ApiResult<crate::kubernetes::SpaceOutput> {
+    crate::kubernetes::execute_space(&req, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_space_delete(engine: &Arc<Engine>, req: crate::kubernetes::SpaceRef) -> ApiResult<crate::kubernetes::SpaceAction> {
+    crate::kubernetes::delete_space(&req, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
 // ---------------------------------------------------------------------------
 // Requests. Doc comments here double as the tool documentation.
 
