@@ -261,6 +261,44 @@ enum K8sAction {
         #[arg(long, default_value_t = 131072)]
         limit_bytes: u32,
     },
+    /// Explicitly planned/approved, bounded Kubernetes Jobs
+    Job {
+        #[command(subcommand)]
+        action: K8sJobAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum K8sJobAction {
+    /// Print a safe bounded Job manifest; no cluster access
+    Plan(K8sJobArgs),
+    /// Create the Job in the chosen cluster (requires --yes)
+    Create(K8sJobArgs),
+    /// Inspect one Job's state
+    Status { name: String },
+    /// Delete a Muxin-created Job (requires --yes)
+    Delete { name: String, #[arg(long)] yes: bool },
+}
+
+#[derive(Args)]
+struct K8sJobArgs {
+    #[arg(long)]
+    name: String,
+    #[arg(long)]
+    image: String,
+    #[arg(long, default_value = "500m")]
+    cpu: String,
+    #[arg(long, default_value = "1Gi")]
+    memory: String,
+    #[arg(long, default_value_t = 0)]
+    gpu: u32,
+    #[arg(long, default_value_t = 3600)]
+    deadline_seconds: u32,
+    #[arg(long)]
+    yes: bool,
+    /// Container program and arguments, after --
+    #[arg(last = true, required = true)]
+    command: Vec<String>,
 }
 
 #[derive(Args)]
@@ -1669,6 +1707,37 @@ fn main() -> ExitCode {
                 };
                 let req = api::KubernetesLogsRequest { context: a.context, namespace, pod, container, previous, tail, limit_bytes };
                 run(&runtime, &a.agent, async move |e| api::kubernetes_logs(&e, req).await, cli::kubernetes_logs)
+            }
+            Some(K8sAction::Job { action }) => {
+                let (Some(context), Some(namespace)) = (a.context, a.namespace) else {
+                    return ExitCode::from(report_error(&a.agent, &ApiError::invalid("Kubernetes Job actions require explicit --context and --namespace.")));
+                };
+                match action {
+                    K8sJobAction::Plan(opts) => {
+                        let req = crate::kubernetes::JobRequest {
+                            context, namespace, name: opts.name, image: opts.image,
+                            command: opts.command, cpu: opts.cpu, memory: opts.memory, gpu: opts.gpu,
+                            deadline_seconds: opts.deadline_seconds, confirm: opts.yes,
+                        };
+                        run(&runtime, &a.agent, async move |_e| api::kubernetes_job_plan(req), cli::kubernetes_job_plan)
+                    }
+                    K8sJobAction::Create(opts) => {
+                        let req = crate::kubernetes::JobRequest {
+                            context, namespace, name: opts.name, image: opts.image,
+                            command: opts.command, cpu: opts.cpu, memory: opts.memory, gpu: opts.gpu,
+                            deadline_seconds: opts.deadline_seconds, confirm: opts.yes,
+                        };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_job_create(&e, req).await, cli::kubernetes_job_action)
+                    }
+                    K8sJobAction::Status { name } => {
+                        let req = crate::kubernetes::JobReference { context, namespace, name, confirm: false };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_job_status(&e, req).await, cli::kubernetes_job_status)
+                    }
+                    K8sJobAction::Delete { name, yes } => {
+                        let req = crate::kubernetes::JobReference { context, namespace, name, confirm: yes };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_job_delete(&e, req).await, cli::kubernetes_job_action)
+                    }
+                }
             }
         },
         Some(Command::Check(args)) => {

@@ -179,7 +179,21 @@ kinds produce warnings rather than silently claiming none exist. Pod logs
 require an explicit namespace and are limited to at most 1 MiB per call.
 Pods may log credentials or private content: use scoped cluster credentials.
 
-This is inventory only. Pod-based workspaces, scheduling and UI integration are not implemented yet. A repeatable live K3s smoke test is in `scripts/test-k3s-inventory.sh` (requires Docker, k3d, kubectl, Rust and jq). The script creates a temporary cluster and kubeconfig and removes them afterward.
+### Create a bounded K3s agent Job
+
+This is an opt-in execution backend for short-lived agent tasks, not a persistent workspace. Kubernetes places the Job on a schedulable node. A Job is never created by a read-only status or planning call.
+
+```sh
+export KUBECONFIG="$HOME/.kube/k3s-agent-readonly-plus-jobs.yaml"  # provisioned, scoped RBAC
+muxin k8s --context homelab --namespace agents job plan --name batch-1 --image python:3.13 -- python -V
+muxin k8s --context homelab --namespace agents job create --yes --name batch-1 --image python:3.13 -- python -V
+muxin k8s --context homelab --namespace agents job status batch-1 --json
+muxin k8s --context homelab --namespace agents job delete batch-1 --yes
+```
+
+The MCP counterparts are `kubernetes_job_plan`, `kubernetes_job_create`, `kubernetes_job_status`, and `kubernetes_job_delete`. Writes require `confirm=true`, an explicit context and namespace, and an explicitly exported `KUBECONFIG`. Jobs run as non-root UID 1000 with no mounted service account token, no extra capabilities, bounded CPU/memory, a maximum execution time, and TTL cleanup. GPU requests use `nvidia.com/gpu` when requested; cluster device plugins and driver setup are out of scope. A Job uses **ephemeral** `/workspace` storage; save results before it expires. Only Muxin-labeled Jobs can be deleted via this interface.
+
+Pod-backed **persistent** workspaces and UI integration are not implemented yet. A repeatable live K3s smoke test is in `scripts/test-k3s-inventory.sh` (requires Docker, k3d, kubectl, Rust and jq). The script creates a temporary cluster and kubeconfig and removes them afterward.
 
 **Access:** K3s's default `/etc/rancher/k3s/k3s.yaml` is an unrestricted cluster-admin credential. For agent-facing MCP use, prefer a dedicated, least-privilege kubeconfig permitting only the resource lists you intend to expose. Muxin does not read secrets, but pod names, namespaces and placement are still cluster metadata. Use `kubectl auth can-i list pods --all-namespaces` and `kubectl auth can-i list nodes` to check permissions.
 

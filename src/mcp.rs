@@ -293,6 +293,10 @@ async fn dispatch(engine: &Arc<Engine>, session: &Session, name: &str, a: Value)
         "kubernetes_workloads" => ok(api::kubernetes_workloads(engine, args(a)?).await?),
         "kubernetes_events" => ok(api::kubernetes_events(engine, args(a)?).await?),
         "kubernetes_logs" => ok(api::kubernetes_logs(engine, args(a)?).await?),
+        "kubernetes_job_plan" => ok(api::kubernetes_job_plan(args(a)?)?),
+        "kubernetes_job_create" => ok(api::kubernetes_job_create(engine, args(a)?).await?),
+        "kubernetes_job_status" => ok(api::kubernetes_job_status(engine, args(a)?).await?),
+        "kubernetes_job_delete" => ok(api::kubernetes_job_delete(engine, args(a)?).await?),
         "add_machine" => ok(api::add_machine(engine, args(a)?, Surface::Mcp).await?),
         "remove_machine" => ok(json!({ "removed": api::remove_machine(engine, args(a)?).await? })),
         "rename_machine" => ok(json!({ "renamed": api::rename_machine(engine, args(a)?).await? })),
@@ -480,6 +484,52 @@ pub fn tools() -> Vec<Value> {
                 "limit_bytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "description": "Default 131072 bytes." }
             }), &["namespace","pod"]),
             "annotations": annotations("Kubernetes pod logs", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_job_plan",
+            "description": "Preview a constrained namespace-scoped Kubernetes Job manifest: no cluster connection, no permission needed, no mutation. Requires explicit context, namespace, name, image and command. Job runs as UID 1000, no service-account token, bounded resources and TTL cleanup.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" }, "image": { "type": "string" },
+                "command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                "cpu": { "type": "string" }, "memory": { "type": "string" },
+                "gpu": { "type": "integer", "minimum": 0, "maximum": 8 },
+                "deadline_seconds": { "type": "integer", "minimum": 30, "maximum": 86400 }
+            }), &["context","namespace","name","image","command"]),
+            "annotations": annotations("Plan Kubernetes Job", true, false, true, false),
+        }),
+        json!({
+            "name": "kubernetes_job_create",
+            "description": "Create one bounded, least-privilege Kubernetes Job from a generated manifest. Mutates a real cluster. Requires explicit context, namespace, KUBECONFIG, plus confirm=true from the user's approval. Does not attach tokens, secrets or privileged host resources.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" }, "image": { "type": "string" },
+                "command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                "cpu": { "type": "string" }, "memory": { "type": "string" },
+                "gpu": { "type": "integer", "minimum": 0, "maximum": 8 },
+                "deadline_seconds": { "type": "integer", "minimum": 30, "maximum": 86400 },
+                "confirm": { "type": "boolean", "description": "Must be true, with explicit user approval." }
+            }), &["context","namespace","name","image","command","confirm"]),
+            "annotations": annotations("Create Kubernetes Job", false, false, false, true),
+        }),
+        json!({
+            "name": "kubernetes_job_status",
+            "description": "Read-only status of a single Kubernetes Job in an explicit context and namespace. Returns active, succeeded, failed and completion conditions, including whether Muxin owns it. Does not mutate cluster state.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" }
+            }), &["context","namespace","name"]),
+            "annotations": annotations("Kubernetes Job status", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_job_delete",
+            "description": "Delete a single Muxin-managed Kubernetes Job after verifying ownership labels. Mutates a real cluster and deletes its pods; requires explicit context, namespace, KUBECONFIG and confirm=true from the user.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" },
+                "confirm": { "type": "boolean", "description": "Must be true, with explicit user approval." }
+            }), &["context","namespace","name","confirm"]),
+            "annotations": annotations("Delete Kubernetes Job", false, true, false, true),
         }),
         json!({
             "name": "add_machine",
@@ -1260,7 +1310,7 @@ mod tests {
     #[test]
     fn tool_schemas_are_well_formed() {
         let tools = tools();
-        assert_eq!(tools.len(), 93);
+        assert_eq!(tools.len(), 97);
         let mut names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         names.sort();
         names.dedup();

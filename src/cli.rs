@@ -10,6 +10,21 @@ use crate::api::{
 };
 use crate::util;
 
+pub fn kubernetes_job_plan(plan: &crate::kubernetes::JobPlan) -> String {
+    let text = serde_json::to_string_pretty(&plan.manifest).unwrap_or_default();
+    format!("Kubernetes Job plan {} / {} / {}\n{}\n\n{}\n", plan.context, plan.namespace, plan.name, text, plan.next)
+}
+
+pub fn kubernetes_job_action(action: &crate::kubernetes::JobAction) -> String {
+    format!("Kubernetes Job {}: {} in {} / {}\n{}\n", action.action, action.name, action.context, action.namespace, action.details)
+}
+
+pub fn kubernetes_job_status(job: &crate::kubernetes::JobStatus) -> String {
+    format!("{} / {} / {}\nActive: {}  succeeded: {}  failed: {}  managed by Muxin: {}\nConditions: {}\n",
+        job.context, job.namespace, job.name, job.active, job.succeeded, job.failed, job.managed_by_muxin,
+        if job.conditions.is_empty() { "none".into() } else { job.conditions.join(", ") })
+}
+
 pub fn kubernetes_workloads(view: &crate::kubernetes::Workloads) -> String {
     let mut out = format!("Kubernetes {} · {}\n", view.context, view.namespace);
     let rows: Vec<Vec<String>> = view.items.iter().map(|w| vec![

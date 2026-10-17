@@ -191,6 +191,24 @@ pub async fn kubernetes_logs(engine: &Arc<Engine>, req: KubernetesLogsRequest) -
     out.map_err(|e| ApiError::new("operation_failed", e))
 }
 
+
+/// Plan a restricted Kubernetes Job without reaching a cluster.
+pub fn kubernetes_job_plan(req: crate::kubernetes::JobRequest) -> ApiResult<crate::kubernetes::JobPlan> {
+    crate::kubernetes::plan_job(&req).map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_job_create(engine: &Arc<Engine>, req: crate::kubernetes::JobRequest) -> ApiResult<crate::kubernetes::JobAction> {
+    crate::kubernetes::create_job(&req, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_job_status(engine: &Arc<Engine>, req: crate::kubernetes::JobReference) -> ApiResult<crate::kubernetes::JobStatus> {
+    crate::kubernetes::job_status(&req, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
+pub async fn kubernetes_job_delete(engine: &Arc<Engine>, req: crate::kubernetes::JobReference) -> ApiResult<crate::kubernetes::JobAction> {
+    crate::kubernetes::delete_job(&req, engine.is_demo()).await.map_err(ApiError::invalid)
+}
+
 // ---------------------------------------------------------------------------
 // Requests. Doc comments here double as the tool documentation.
 
