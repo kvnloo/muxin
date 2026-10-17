@@ -7,6 +7,10 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::process::Command;
 
+mod workloads;
+pub use workloads::{Event, Events, PodLogs, Workload, Workloads};
+pub use workloads::{demo_events, demo_logs, demo_workloads, inspect_events, inspect_logs, inspect_workloads};
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Node {
     pub name: String,
@@ -60,21 +64,7 @@ async fn inspect_with_tools(
 ) -> Result<ClusterStatus, String> {
     validate_options(context, namespace)?;
 
-    // An explicit context is pinned for both calls. Without one, report the
-    // current context instead of silently labelling it "default".
-    let selected = match context {
-        Some(name) => name.to_string(),
-        None => {
-            let output = run_kubectl_with(kubectl, k3s, None, &["config", "current-context"]).await?;
-            String::from_utf8(output)
-                .map_err(|_| "kubectl returned an invalid context name.".to_string())?
-                .trim()
-                .to_string()
-        }
-    };
-    if selected.is_empty() {
-        return Err("kubectl has no current context. Configure a cluster with kubeconfig first.".into());
-    }
+    let selected = selected_context(kubectl, k3s, context).await?;
 
     // Use the same explicit context for every request so a concurrent
     // kubeconfig context switch cannot mix two clusters in one result.
@@ -156,6 +146,25 @@ pub fn demo_status(context: Option<&str>, namespace: Option<&str>) -> Result<Clu
         pods: Some(pods.into_iter().filter(|pod| namespace.is_none_or(|n| n == pod.namespace)).collect()),
         warnings: Vec::new(),
     })
+}
+
+/// Resolve once and pin each resource request to one kubeconfig context.
+/// Never pass an unvalidated, flag-shaped context name to kubectl.
+async fn selected_context(kubectl: &str, k3s: &str, context: Option<&str>) -> Result<String, String> {
+    let chosen = match context {
+        Some(name) => name.to_string(),
+        None => {
+            let output = run_kubectl_with(kubectl, k3s, None, &["config", "current-context"]).await?;
+            String::from_utf8(output)
+                .map_err(|_| "kubectl returned an invalid context name.".to_string())?
+                .trim()
+                .to_string()
+        }
+    };
+    if chosen.is_empty() || chosen.len() > 253 || chosen.starts_with('-') || chosen.chars().any(char::is_control) {
+        return Err("Kubeconfig context name is missing or invalid.".into());
+    }
+    Ok(chosen)
 }
 
 fn valid_namespace(value: &str) -> bool {

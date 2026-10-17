@@ -233,9 +233,34 @@ struct K8sArgs {
     /// Kubeconfig context (default: current context)
     #[arg(long)]
     context: Option<String>,
-    /// Only pods in this namespace (default: all namespaces)
+    /// Only pods in this namespace (default: all namespaces; required for logs)
     #[arg(long)]
     namespace: Option<String>,
+    #[command(subcommand)]
+    action: Option<K8sAction>,
+}
+
+#[derive(Subcommand)]
+enum K8sAction {
+    /// Inspect deployments, statefulsets, daemonsets and jobs
+    Workloads,
+    /// Recent Kubernetes events (default 100, max 200)
+    Events {
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+    /// Bounded pod logs from one explicit namespace
+    Logs {
+        pod: String,
+        #[arg(long)]
+        container: Option<String>,
+        #[arg(long)]
+        previous: bool,
+        #[arg(long, default_value_t = 100)]
+        tail: u32,
+        #[arg(long, default_value_t = 131072)]
+        limit_bytes: u32,
+    },
 }
 
 #[derive(Args)]
@@ -1625,9 +1650,26 @@ fn main() -> ExitCode {
             }
         }
         Some(Command::Mcp(a)) => mcp(a, &runtime),
-        Some(Command::K8s(a)) => {
-            let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };
-            run(&runtime, &a.agent, async move |e| api::kubernetes(&e, req).await, cli::kubernetes)
+        Some(Command::K8s(a)) => match a.action {
+            None => {
+                let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };
+                run(&runtime, &a.agent, async move |e| api::kubernetes(&e, req).await, cli::kubernetes)
+            }
+            Some(K8sAction::Workloads) => {
+                let req = api::KubernetesRequest { context: a.context, namespace: a.namespace };
+                run(&runtime, &a.agent, async move |e| api::kubernetes_workloads(&e, req).await, cli::kubernetes_workloads)
+            }
+            Some(K8sAction::Events { limit }) => {
+                let req = api::KubernetesEventsRequest { context: a.context, namespace: a.namespace, limit };
+                run(&runtime, &a.agent, async move |e| api::kubernetes_events(&e, req).await, cli::kubernetes_events)
+            }
+            Some(K8sAction::Logs { pod, container, previous, tail, limit_bytes }) => {
+                let Some(namespace) = a.namespace else {
+                    return ExitCode::from(report_error(&a.agent, &ApiError::invalid("Pod logs require --namespace.")));
+                };
+                let req = api::KubernetesLogsRequest { context: a.context, namespace, pod, container, previous, tail, limit_bytes };
+                run(&runtime, &a.agent, async move |e| api::kubernetes_logs(&e, req).await, cli::kubernetes_logs)
+            }
         },
         Some(Command::Check(args)) => {
             let _guard = runtime.enter();
