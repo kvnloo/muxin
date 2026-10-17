@@ -216,3 +216,7 @@ The CLI equivalents are `muxin schedule ls|add|rm|run|log`.
 - Don't pass tokens around. Muxin gets registration tokens itself from the user's `gh` login.
 - Don't use `delete_files: true` unless the user wants the runner's folder gone.
 - Don't leave workspaces behind, and don't turn workspaces on for a machine (`workspace_allow`) unless the user asks.
+
+## Kubernetes/K3s capability (contributor branch)
+
+Use `muxin k8s --json contexts` to list kubeconfig context names without credential data, and `muxin k8s --json --context <context> --namespace <namespace> diagnose` for read-only triage. State `partial` means RBAC prevented complete observation; it does not mean healthy. CPU/memory/GPU values on nodes are allocatable, **not** free. For write actions, require explicit user authorization plus `--yes`/MCP `confirm=true`, a selected context and namespace, and a limited KUBECONFIG. Never expose the built-in K3s admin kubeconfig to an agent. Jobs have TTL-based ephemeral storage; durable workspaces require an existing PVC that Muxin never deletes. This staged branch is unverified; coordinate review through the fork PR stack before any upstream submission.

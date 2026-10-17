@@ -162,6 +162,15 @@ muxin k8s --namespace agents --json      # pods in one namespace
 
 The `kubernetes_status` MCP tool accepts optional `context` and `namespace` fields and returns the same node/pod inventory. Nodes include readiness, whether they're cordoned, CPU/memory allocatable values and architecture. Pods include container waiting reasons such as `CrashLoopBackOff` and scheduler reasons such as `Unschedulable`. Allocatable resources are **not** live free resources. Node or pod listing may be denied by your Kubernetes RBAC rules; in that case the other list is still returned with a warning. In JSON, an inaccessible list is `null`, not `[]` (which means readable but empty). No cluster write permissions are needed.
 
+### Cluster context discovery and fleet diagnostics
+
+```sh
+muxin k8s --json contexts
+muxin k8s --json --context homelab --namespace agents diagnose
+```
+
+The MCP tools `kubernetes_contexts` and `kubernetes_diagnostics` expose the same read-only APIs. Diagnostics flag node pressure, offline/cordoned nodes, failing pods, controller readiness gaps, and warning events. When RBAC hides a resource family, state is `partial`, never a misleading `ok`. Node extended resources include device-plugin GPU quantities; these are **allocatable**, not free inventory.
+
 ### Workloads, events and logs (CLI and MCP)
 
 ```sh
