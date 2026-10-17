@@ -297,6 +297,12 @@ async fn dispatch(engine: &Arc<Engine>, session: &Session, name: &str, a: Value)
         "kubernetes_job_create" => ok(api::kubernetes_job_create(engine, args(a)?).await?),
         "kubernetes_job_status" => ok(api::kubernetes_job_status(engine, args(a)?).await?),
         "kubernetes_job_delete" => ok(api::kubernetes_job_delete(engine, args(a)?).await?),
+        "kubernetes_space_plan" => ok(api::kubernetes_space_plan(args(a)?)?),
+        "kubernetes_space_create" => ok(api::kubernetes_space_create(engine, args(a)?).await?),
+        "kubernetes_space_list" => ok(api::kubernetes_space_list(engine, args(a)?).await?),
+        "kubernetes_space_status" => ok(api::kubernetes_space_status(engine, args(a)?).await?),
+        "kubernetes_space_exec" => ok(api::kubernetes_space_exec(engine, args(a)?).await?),
+        "kubernetes_space_delete" => ok(api::kubernetes_space_delete(engine, args(a)?).await?),
         "add_machine" => ok(api::add_machine(engine, args(a)?, Surface::Mcp).await?),
         "remove_machine" => ok(json!({ "removed": api::remove_machine(engine, args(a)?).await? })),
         "rename_machine" => ok(json!({ "renamed": api::rename_machine(engine, args(a)?).await? })),
@@ -530,6 +536,69 @@ pub fn tools() -> Vec<Value> {
                 "confirm": { "type": "boolean", "description": "Must be true, with explicit user approval." }
             }), &["context","namespace","name","confirm"]),
             "annotations": annotations("Delete Kubernetes Job", false, true, false, true),
+        }),
+        json!({
+            "name": "kubernetes_space_plan",
+            "description": "Plan a PVC-backed Kubernetes workspace Deployment without contacting the cluster. Returns a constrained manifest with Recreate strategy, one replica, no service-account token, unprivileged UID 1000, and an existing PVC reference.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" }, "image": { "type": "string" },
+                "claim": { "type": "string", "description": "Name of an existing PVC." },
+                "cpu": { "type": "string" }, "memory": { "type": "string" },
+                "gpu": { "type": "integer", "minimum": 0, "maximum": 8 }
+            }), &["context","namespace","name","image","claim"]),
+            "annotations": annotations("Plan Kubernetes workspace", true, false, true, false),
+        }),
+        json!({
+            "name": "kubernetes_space_create",
+            "description": "Create a reschedulable Kubernetes workspace Deployment backed by an existing PVC. Changes cluster resources; requires explicit context, namespace, exported KUBECONFIG, and user approval confirm=true. Never creates or deletes the claim.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" }, "image": { "type": "string" },
+                "claim": { "type": "string" }, "cpu": { "type": "string" },
+                "memory": { "type": "string" }, "gpu": { "type": "integer", "minimum": 0, "maximum": 8 },
+                "confirm": { "type": "boolean", "description": "True only after user approval." }
+            }), &["context","namespace","name","image","claim","confirm"]),
+            "annotations": annotations("Create Kubernetes workspace", false, false, false, true),
+        }),
+        json!({
+            "name": "kubernetes_space_list",
+            "description": "Read-only list of Muxin-managed Kubernetes workspace Deployments in a chosen namespace, with claim and readiness. Does not inspect or mutate other Deployments.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" }
+            }), &["context","namespace"]),
+            "annotations": annotations("List Kubernetes workspaces", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_space_status",
+            "description": "Read-only status of a Muxin-owned Kubernetes workspace: Deployment readiness, PVC name, selected ready Pod and placement. Requires explicit context, namespace and name.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" }
+            }), &["context","namespace","name"]),
+            "annotations": annotations("Kubernetes workspace status", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_space_exec",
+            "description": "Execute one argv command inside a ready Muxin-owned Kubernetes workspace Pod. Never runs a host shell. Requires explicit context, namespace, exported KUBECONFIG and user approval confirm=true. Captures capped output and returns exit code. Command may mutate the workspace PVC.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" },
+                "command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+                "confirm": { "type": "boolean", "description": "True only after user approval." }
+            }), &["context","namespace","name","command","confirm"]),
+            "annotations": annotations("Run command in Kubernetes workspace", false, false, false, true),
+        }),
+        json!({
+            "name": "kubernetes_space_delete",
+            "description": "Delete ONLY a Deployment marked as a Muxin-managed Kubernetes workspace. Does not delete its PVC or files. Changes cluster resources; requires context, namespace, exported KUBECONFIG and user approval confirm=true.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string" }, "namespace": { "type": "string" },
+                "name": { "type": "string" },
+                "confirm": { "type": "boolean", "description": "True only after user approval." }
+            }), &["context","namespace","name","confirm"]),
+            "annotations": annotations("Delete Kubernetes workspace Deployment", false, true, false, true),
         }),
         json!({
             "name": "add_machine",
@@ -1310,7 +1379,7 @@ mod tests {
     #[test]
     fn tool_schemas_are_well_formed() {
         let tools = tools();
-        assert_eq!(tools.len(), 97);
+        assert_eq!(tools.len(), 103);
         let mut names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         names.sort();
         names.dedup();

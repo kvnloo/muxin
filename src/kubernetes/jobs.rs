@@ -266,7 +266,7 @@ fn status_from(context: &str, namespace: &str, name: &str, raw: &Value) -> JobSt
     }
 }
 
-fn validate_ref(context: &str, namespace: &str, name: &str) -> Result<(), String> {
+pub(super) fn validate_ref(context: &str, namespace: &str, name: &str) -> Result<(), String> {
     if context.is_empty() || context.len() > 253 || context.starts_with('-') || context.chars().any(char::is_control) {
         return Err("Explicit Kubernetes context is required (1..253 valid characters).".into());
     }
@@ -276,14 +276,14 @@ fn validate_ref(context: &str, namespace: &str, name: &str) -> Result<(), String
     Ok(())
 }
 
-fn valid_cpu(v: &str) -> bool {
+pub(super) fn valid_cpu(v: &str) -> bool {
     match v.strip_suffix('m') {
         Some(m) => m.parse::<u32>().is_ok_and(|n| (1..=32000).contains(&n)),
         None => v.parse::<u32>().is_ok_and(|n| (1..=128).contains(&n)),
     }
 }
 
-fn valid_memory(v: &str) -> bool {
+pub(super) fn valid_memory(v: &str) -> bool {
     if let Some(n) = v.strip_suffix("Mi") {
         n.parse::<u32>().is_ok_and(|n| (1..=131072).contains(&n))
     } else if let Some(n) = v.strip_suffix("Gi") {
@@ -296,7 +296,7 @@ fn valid_memory(v: &str) -> bool {
 /// A mutating command never discovers the K3s default cluster-admin config.
 /// Explicit kubeconfig + context narrow accidental writes; Kubernetes RBAC is
 /// still the real authorization boundary.
-fn require_explicit_kubeconfig() -> Result<(), String> {
+pub(super) fn require_explicit_kubeconfig() -> Result<(), String> {
     match std::env::var_os("KUBECONFIG") {
         Some(path) if !path.is_empty() => Ok(()),
         _ => Err("Set KUBECONFIG to a deliberately selected, least-privilege kubeconfig before changing cluster resources.".into()),
@@ -308,7 +308,7 @@ enum ExecFailure {
     Failed(String),
 }
 
-async fn kubectl_with_input(context: &str, argv: &[&str], manifest: &[u8]) -> Result<Vec<u8>, String> {
+pub(super) async fn kubectl_with_input(context: &str, argv: &[&str], manifest: &[u8]) -> Result<Vec<u8>, String> {
     if manifest.len() > 64 * 1024 {
         return Err("Refusing to submit a manifest larger than 64 KiB.".into());
     }

@@ -193,7 +193,23 @@ muxin k8s --context homelab --namespace agents job delete batch-1 --yes
 
 The MCP counterparts are `kubernetes_job_plan`, `kubernetes_job_create`, `kubernetes_job_status`, and `kubernetes_job_delete`. Writes require `confirm=true`, an explicit context and namespace, and an explicitly exported `KUBECONFIG`. Jobs run as non-root UID 1000 with no mounted service account token, no extra capabilities, bounded CPU/memory, a maximum execution time, and TTL cleanup. GPU requests use `nvidia.com/gpu` when requested; cluster device plugins and driver setup are out of scope. A Job uses **ephemeral** `/workspace` storage; save results before it expires. Only Muxin-labeled Jobs can be deleted via this interface.
 
-Pod-backed **persistent** workspaces and UI integration are not implemented yet. A repeatable live K3s smoke test is in `scripts/test-k3s-inventory.sh` (requires Docker, k3d, kubectl, Rust and jq). The script creates a temporary cluster and kubeconfig and removes them afterward.
+### Persistent K3s agent workspaces (PVC-backed)
+
+Requires an **existing** PersistentVolumeClaim and a container image with `/bin/sh`, `sleep`, and tools suitable for UID 1000. Muxin creates a single-replica Deployment with `Recreate` strategy, so Kubernetes can reschedule the workspace without discarding the PVC.
+
+```sh
+export KUBECONFIG="$HOME/.kube/k3s-agent-operator.yaml"
+muxin k8s --context homelab --namespace agents space plan --name coder --claim coder-data --image python:3.13
+muxin k8s --context homelab --namespace agents space create --name coder --claim coder-data --image python:3.13 --yes
+muxin k8s --context homelab --namespace agents space list
+muxin k8s --context homelab --namespace agents space status coder
+muxin k8s --context homelab --namespace agents space exec coder --yes -- sh -lc "pwd && ls -la"
+muxin k8s --context homelab --namespace agents space delete coder --yes
+```
+
+The MCP tools `kubernetes_space_plan/create/list/status/exec/delete` provide the same operations. Creation and command execution require explicit approval and a configured kubeconfig. Deleting a workspace **always leaves its PVC and files intact**. This is a separate Kubernetes backend: it does not yet appear among Muxin's SSH machine workspaces or sync through the existing `workspace_*` APIs.
+
+Kubernetes workspaces are not yet unified with the SSH-workspace dashboard or file-sync UX. A repeatable live K3s smoke test is in `scripts/test-k3s-inventory.sh` (requires Docker, k3d, kubectl, Rust and jq). The script creates a temporary cluster and kubeconfig and removes them afterward.
 
 **Access:** K3s's default `/etc/rancher/k3s/k3s.yaml` is an unrestricted cluster-admin credential. For agent-facing MCP use, prefer a dedicated, least-privilege kubeconfig permitting only the resource lists you intend to expose. Muxin does not read secrets, but pod names, namespaces and placement are still cluster metadata. Use `kubectl auth can-i list pods --all-namespaces` and `kubectl auth can-i list nodes` to check permissions.
 

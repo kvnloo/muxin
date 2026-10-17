@@ -266,6 +266,54 @@ enum K8sAction {
         #[command(subcommand)]
         action: K8sJobAction,
     },
+    /// PVC-backed, reschedulable Kubernetes workspaces
+    Space {
+        #[command(subcommand)]
+        action: K8sSpaceAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum K8sSpaceAction {
+    /// Inspect all Muxin-managed workspace Deployments in a namespace
+    List,
+    /// Preview a Deployment manifest; no cluster access
+    Plan(K8sSpaceArgs),
+    /// Create a Deployment backed by an existing PVC
+    Create(K8sSpaceArgs),
+    /// Status of a Muxin-managed workspace
+    Status { name: String },
+    /// Execute argv inside the ready workspace Pod
+    Exec {
+        name: String,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long, default_value_t = 60)]
+        timeout_seconds: u32,
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Remove the Deployment; always preserve its PVC
+    Delete { name: String, #[arg(long)] yes: bool },
+}
+
+#[derive(Args)]
+struct K8sSpaceArgs {
+    #[arg(long)]
+    name: String,
+    #[arg(long)]
+    image: String,
+    /// Name of an existing PVC (Muxin never creates or deletes it)
+    #[arg(long)]
+    claim: String,
+    #[arg(long, default_value = "500m")]
+    cpu: String,
+    #[arg(long, default_value = "1Gi")]
+    memory: String,
+    #[arg(long, default_value_t = 0)]
+    gpu: u32,
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Subcommand)]
@@ -1736,6 +1784,45 @@ fn main() -> ExitCode {
                     K8sJobAction::Delete { name, yes } => {
                         let req = crate::kubernetes::JobReference { context, namespace, name, confirm: yes };
                         run(&runtime, &a.agent, async move |e| api::kubernetes_job_delete(&e, req).await, cli::kubernetes_job_action)
+                    }
+                }
+            }
+            Some(K8sAction::Space { action }) => {
+                let (Some(context), Some(namespace)) = (a.context, a.namespace) else {
+                    return ExitCode::from(report_error(&a.agent, &ApiError::invalid("Kubernetes workspaces require explicit --context and --namespace.")));
+                };
+                match action {
+                    K8sSpaceAction::List => {
+                        let req = crate::kubernetes::SpaceRef { context, namespace, ..Default::default() };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_space_list(&e, req).await, cli::kubernetes_space_list)
+                    }
+                    K8sSpaceAction::Plan(opts) => {
+                        let req = crate::kubernetes::SpaceRequest {
+                            context, namespace, name: opts.name, image: opts.image,
+                            claim: opts.claim, cpu: opts.cpu, memory: opts.memory,
+                            gpu: opts.gpu, confirm: opts.yes,
+                        };
+                        run(&runtime, &a.agent, async move |_e| api::kubernetes_space_plan(req), cli::kubernetes_space_plan)
+                    }
+                    K8sSpaceAction::Create(opts) => {
+                        let req = crate::kubernetes::SpaceRequest {
+                            context, namespace, name: opts.name, image: opts.image,
+                            claim: opts.claim, cpu: opts.cpu, memory: opts.memory,
+                            gpu: opts.gpu, confirm: opts.yes,
+                        };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_space_create(&e, req).await, cli::kubernetes_space_action)
+                    }
+                    K8sSpaceAction::Status { name } => {
+                        let req = crate::kubernetes::SpaceRef { context, namespace, name, confirm: false };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_space_status(&e, req).await, cli::kubernetes_space_info)
+                    }
+                    K8sSpaceAction::Exec { name, yes, timeout_seconds, command } => {
+                        let req = crate::kubernetes::SpaceExec { context, namespace, name, command, confirm: yes, timeout_seconds };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_space_exec(&e, req).await, cli::kubernetes_space_output)
+                    }
+                    K8sSpaceAction::Delete { name, yes } => {
+                        let req = crate::kubernetes::SpaceRef { context, namespace, name, confirm: yes };
+                        run(&runtime, &a.agent, async move |e| api::kubernetes_space_delete(&e, req).await, cli::kubernetes_space_action)
                     }
                 }
             }

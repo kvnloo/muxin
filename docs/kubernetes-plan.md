@@ -54,3 +54,15 @@ CONTRIBUTING.md asks contributors to open an issue and agree on major changes
 before a PR. Origin issue creation was attempted and returned HTTP 403 from
 the connected GitHub integration. This fork-only branch is not approval to
 post a feature PR upstream. Preserve Adib Hanna/LumaryLabsLLC provenance.
+
+### Fork prototype (not validated)
+
+The stacked `feature/k3s-persistent-workspaces` branch adds a separate
+`muxin k8s space` CLI/MCP surface with manifest planning, creation, listing,
+status, command execution and deployment deletion. It uses a pre-existing PVC,
+a one-replica Deployment with Recreate strategy, explicit user approval and a
+namespace-scoped kubeconfig. Deleting never removes the PVC. This is still not
+wired into the SSH machine workspace registry or Muxin's native GUI. Tests are
+authored but not yet executed by this contributor environment; origin promotion
+requires maintainer design agreement and reviewers' results.
+
