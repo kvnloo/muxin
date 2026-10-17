@@ -476,7 +476,13 @@ mod tests {
 if [ "$1" != "kubectl" ]; then exit 17; fi
 shift
 case " $* " in
-  *" config current-context "*) printf 'test-k3s\n' ;;
+  *" config current-context "*) printf 'test-k3s\n'; exit 0 ;;
+esac
+case " $* " in
+  *" --context test-k3s "*) ;;
+  *) exit 18 ;;
+esac
+case " $* " in
   *" get nodes -o json "*) printf '{"items":[{"metadata":{"name":"worker"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}' ;;
   *" get pods -o json --namespace agents "*) printf '{"items":[{"metadata":{"name":"agent","namespace":"agents"},"status":{"phase":"Running"}}]}' ;;
   *) exit 19 ;;
