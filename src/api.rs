@@ -111,6 +111,23 @@ impl Surface {
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct KubernetesRequest {
+    pub context: Option<String>,
+    pub namespace: Option<String>,
+}
+
+/// Read-only nodes and pods from a Kubernetes or K3s cluster via kubectl.
+pub async fn kubernetes(engine: &Arc<Engine>, req: KubernetesRequest) -> ApiResult<crate::kubernetes::ClusterStatus> {
+    let result = if engine.is_demo() {
+        crate::kubernetes::demo_status(req.context.as_deref(), req.namespace.as_deref())
+    } else {
+        crate::kubernetes::inspect(req.context.as_deref(), req.namespace.as_deref()).await
+    };
+    result.map_err(|message| ApiError::new("operation_failed", message))
+}
+
 // ---------------------------------------------------------------------------
 // Requests. Doc comments here double as the tool documentation.
 

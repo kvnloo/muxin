@@ -10,6 +10,39 @@ use crate::api::{
 };
 use crate::util;
 
+pub fn kubernetes(cluster: &crate::kubernetes::ClusterStatus) -> String {
+    let node_summary = match &cluster.nodes {
+        Some(nodes) => format!("{} nodes ({} ready)", nodes.len(), nodes.iter().filter(|n| n.ready == "Ready").count()),
+        None => "nodes unavailable".into(),
+    };
+    let pod_summary = match &cluster.pods {
+        Some(pods) => format!("{} pods", pods.len()),
+        None => "pods unavailable".into(),
+    };
+    let mut out = format!("Kubernetes: {}  ·  pods: {}\n{}, {}\n", cluster.context, cluster.namespace, node_summary, pod_summary);
+    if let Some(nodes) = cluster.nodes.as_ref().filter(|nodes| !nodes.is_empty()) {
+        let rows: Vec<Vec<String>> = nodes.iter().map(|n| vec![
+            n.name.clone(),
+            n.ready.clone(),
+            if n.schedulable { "yes".into() } else { "cordoned".into() },
+            n.cpu_allocatable.clone().unwrap_or_else(|| "—".into()),
+            n.memory_allocatable.clone().unwrap_or_else(|| "—".into()),
+            n.architecture.clone().unwrap_or_else(|| "—".into()),
+        ]).collect();
+        out.push_str("\nNodes (CPU and memory are allocatable, not free):\n");
+        out.push_str(&table(&["NODE", "STATUS", "SCHEDULABLE", "CPU", "MEMORY", "ARCH"], &rows));
+    }
+    if let Some(pods) = cluster.pods.as_ref().filter(|pods| !pods.is_empty()) {
+        let rows: Vec<Vec<String>> = pods.iter().map(|p| vec![p.namespace.clone(), p.name.clone(), p.node.clone().unwrap_or_else(|| "—".into()), p.phase.clone(), p.reason.clone().unwrap_or_else(|| "—".into()), format!("{}/{}", p.ready, p.containers), p.restarts.to_string()]).collect();
+        out.push_str("\nPods:\n");
+        out.push_str(&table(&["NAMESPACE", "POD", "NODE", "PHASE", "REASON", "READY", "RESTARTS"], &rows));
+    }
+    for warning in &cluster.warnings {
+        out.push_str(&format!("\nWarning: {warning}\n"));
+    }
+    out
+}
+
 pub fn status(s: &StatusResponse) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{}", s.summary);
