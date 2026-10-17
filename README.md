@@ -162,7 +162,9 @@ muxin k8s --namespace agents --json      # pods in one namespace
 
 The `kubernetes_status` MCP tool accepts optional `context` and `namespace` fields and returns the same node/pod inventory. Nodes include readiness, whether they're cordoned, CPU/memory allocatable values and architecture. Pods include container waiting reasons such as `CrashLoopBackOff` and scheduler reasons such as `Unschedulable`. Allocatable resources are **not** live free resources. Node or pod listing may be denied by your Kubernetes RBAC rules; in that case the other list is still returned with a warning. In JSON, an inaccessible list is `null`, not `[]` (which means readable but empty). No cluster write permissions are needed.
 
-This is inventory only. Pod-based workspaces, scheduling and UI integration are not implemented yet.
+This is inventory only. Pod-based workspaces, scheduling and UI integration are not implemented yet. A repeatable live K3s smoke test is in `scripts/test-k3s-inventory.sh` (requires Docker, k3d, kubectl, Rust and jq). The script creates a temporary cluster and kubeconfig and removes them afterward.
+
+**Access:** K3s's default `/etc/rancher/k3s/k3s.yaml` is an unrestricted cluster-admin credential. For agent-facing MCP use, prefer a dedicated, least-privilege kubeconfig permitting only the resource lists you intend to expose. Muxin does not read secrets, but pod names, namespaces and placement are still cluster metadata. Use `kubectl auth can-i list pods --all-namespaces` and `kubectl auth can-i list nodes` to check permissions.
 
 ## GitHub
 
