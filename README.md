@@ -160,7 +160,7 @@ muxin k3s --context homelab              # same command, K3s alias
 muxin k8s --namespace agents --json      # pods in one namespace
 ```
 
-The `kubernetes_status` MCP tool accepts optional `context` and `namespace` fields and returns the same node/pod inventory. Node or pod listing may be denied by your Kubernetes RBAC rules; in that case the other list is still returned with a warning. In JSON, an inaccessible list is `null`, not `[]` (which means readable but empty). No cluster write permissions are needed.
+The `kubernetes_status` MCP tool accepts optional `context` and `namespace` fields and returns the same node/pod inventory. Nodes include readiness, whether they're cordoned, CPU/memory allocatable values and architecture. Allocatable resources are **not** live free resources. Node or pod listing may be denied by your Kubernetes RBAC rules; in that case the other list is still returned with a warning. In JSON, an inaccessible list is `null`, not `[]` (which means readable but empty). No cluster write permissions are needed.
 
 This is inventory only. Pod-based workspaces, scheduling and UI integration are not implemented yet.
 

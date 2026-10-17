@@ -11,6 +11,15 @@ use tokio::process::Command;
 pub struct Node {
     pub name: String,
     pub ready: String,
+    /// False when the node is cordoned; this is not a health signal.
+    pub schedulable: bool,
+    /// Requested workload capacity, not live free CPU or memory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_allocatable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_allocatable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -139,8 +148,8 @@ pub fn demo_status(context: Option<&str>, namespace: Option<&str>) -> Result<Clu
         context: "demo".into(),
         namespace: namespace.unwrap_or("all").into(),
         nodes: Some(vec![
-            Node { name: "control-1".into(), ready: "Ready".into() },
-            Node { name: "worker-1".into(), ready: "Ready".into() },
+            Node { name: "control-1".into(), ready: "Ready".into(), schedulable: true, cpu_allocatable: Some("4".into()), memory_allocatable: Some("8Gi".into()), architecture: Some("amd64".into()) },
+            Node { name: "worker-1".into(), ready: "Ready".into(), schedulable: true, cpu_allocatable: Some("8".into()), memory_allocatable: Some("16Gi".into()), architecture: Some("amd64".into()) },
         ]),
         pods: Some(pods.into_iter().filter(|pod| namespace.is_none_or(|n| n == pod.namespace)).collect()),
         warnings: Vec::new(),
@@ -242,7 +251,14 @@ fn parse_nodes(data: &Value) -> Result<Vec<Node>, String> {
             Some("False") => "NotReady",
             _ => "Unknown",
         };
-        result.push(Node { name, ready: ready.into() });
+        result.push(Node {
+            name,
+            ready: ready.into(),
+            schedulable: entry["spec"]["unschedulable"].as_bool() != Some(true),
+            cpu_allocatable: entry["status"]["allocatable"]["cpu"].as_str().map(str::to_string),
+            memory_allocatable: entry["status"]["allocatable"]["memory"].as_str().map(str::to_string),
+            architecture: entry["status"]["nodeInfo"]["architecture"].as_str().map(str::to_string),
+        });
     }
     result.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(result)
@@ -295,11 +311,20 @@ mod tests {
     fn nodes_report_readiness_and_sort_by_name() {
         let nodes = parse_nodes(&json!({ "items": [
             {"metadata": {"name": "z"}, "status": {"conditions": [{"type": "Ready", "status": "False"}]}},
-            {"metadata": {"name": "a"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}
+            {"metadata": {"name": "a"}, "spec": {"unschedulable": true}, "status": {
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "nodeInfo": {"architecture": "amd64"},
+                "allocatable": {"cpu": "3900m", "memory": "7Gi"}
+            }}
         ]})).unwrap();
         assert_eq!(nodes[0].name, "a");
         assert_eq!(nodes[0].ready, "Ready");
+        assert!(!nodes[0].schedulable, "Ready and cordoned are independent states");
+        assert_eq!(nodes[0].cpu_allocatable.as_deref(), Some("3900m"));
+        assert_eq!(nodes[0].memory_allocatable.as_deref(), Some("7Gi"));
+        assert_eq!(nodes[0].architecture.as_deref(), Some("amd64"));
         assert_eq!(nodes[1].ready, "NotReady");
+        assert!(nodes[1].schedulable);
     }
 
     #[test]
@@ -421,6 +446,35 @@ esac
         assert_eq!(status.context, "test-k3s");
         assert_eq!(status.nodes.as_ref().unwrap()[0].ready, "Ready");
         assert_eq!(status.pods.as_ref().unwrap()[0].name, "agent");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A failed kubectl is not retried through another binary (and potentially
+    /// a different kubeconfig).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_standalone_client_does_not_switch_to_k3s() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("muxin-kubectl-fail-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let binary = dir.join("kubectl");
+        let fallback = dir.join("k3s");
+        std::fs::write(&binary, "#!/bin/sh\nprintf 'access denied' >&2\nexit 17\n").unwrap();
+        std::fs::write(&fallback, "#!/bin/sh\nprintf 'fallback invoked' >&2\nexit 1\n").unwrap();
+        for program in [&binary, &fallback] {
+            let mut mode = std::fs::metadata(program).unwrap().permissions();
+            mode.set_mode(0o700);
+            std::fs::set_permissions(program, mode).unwrap();
+        }
+        let err = run_kubectl_with(binary.to_str().unwrap(), fallback.to_str().unwrap(), Some("prod"), &["get", "nodes"])
+            .await.unwrap_err();
+        assert!(err.contains("access denied"), "{err}");
+        assert!(!err.contains("fallback invoked"), "{err}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
