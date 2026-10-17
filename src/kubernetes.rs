@@ -106,8 +106,8 @@ fn valid_namespace(value: &str) -> bool {
     let bytes = value.as_bytes();
     !bytes.is_empty()
         && bytes.len() <= 63
-        && bytes[0].is_ascii_lowercase().then_some(()).is_some_or(bytes[0].is_ascii_digit())
-        && bytes[bytes.len() - 1].is_ascii_lowercase().then_some(()).is_some_or(bytes[bytes.len() - 1].is_ascii_digit())
+        && (bytes[0].is_ascii_lowercase() || bytes[0].is_ascii_digit())
+        && (bytes[bytes.len() - 1].is_ascii_lowercase() || bytes[bytes.len() - 1].is_ascii_digit())
         && bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
