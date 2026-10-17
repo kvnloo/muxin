@@ -33,9 +33,9 @@ pub fn kubernetes(cluster: &crate::kubernetes::ClusterStatus) -> String {
         out.push_str(&table(&["NODE", "STATUS", "SCHEDULABLE", "CPU", "MEMORY", "ARCH"], &rows));
     }
     if let Some(pods) = cluster.pods.as_ref().filter(|pods| !pods.is_empty()) {
-        let rows: Vec<Vec<String>> = pods.iter().map(|p| vec![p.namespace.clone(), p.name.clone(), p.node.clone().unwrap_or_else(|| "—".into()), p.phase.clone(), format!("{}/{}", p.ready, p.containers), p.restarts.to_string()]).collect();
+        let rows: Vec<Vec<String>> = pods.iter().map(|p| vec![p.namespace.clone(), p.name.clone(), p.node.clone().unwrap_or_else(|| "—".into()), p.phase.clone(), p.reason.clone().unwrap_or_else(|| "—".into()), format!("{}/{}", p.ready, p.containers), p.restarts.to_string()]).collect();
         out.push_str("\nPods:\n");
-        out.push_str(&table(&["NAMESPACE", "POD", "NODE", "PHASE", "READY", "RESTARTS"], &rows));
+        out.push_str(&table(&["NAMESPACE", "POD", "NODE", "PHASE", "REASON", "READY", "RESTARTS"], &rows));
     }
     for warning in &cluster.warnings {
         out.push_str(&format!("\nWarning: {warning}\n"));

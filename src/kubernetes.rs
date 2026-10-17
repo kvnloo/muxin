@@ -28,6 +28,8 @@ pub struct Pod {
     pub name: String,
     pub node: Option<String>,
     pub phase: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub ready: usize,
     pub containers: usize,
     pub restarts: u64,
@@ -141,8 +143,8 @@ fn validate_options(context: Option<&str>, namespace: Option<&str>) -> Result<()
 pub fn demo_status(context: Option<&str>, namespace: Option<&str>) -> Result<ClusterStatus, String> {
     validate_options(context, namespace)?;
     let pods = vec![
-        Pod { namespace: "agents".into(), name: "agent-worker".into(), node: Some("worker-1".into()), phase: "Running".into(), ready: 1, containers: 1, restarts: 0 },
-        Pod { namespace: "kube-system".into(), name: "coredns".into(), node: Some("worker-1".into()), phase: "Running".into(), ready: 1, containers: 1, restarts: 1 },
+        Pod { namespace: "agents".into(), name: "agent-worker".into(), node: Some("worker-1".into()), phase: "Running".into(), reason: None, ready: 1, containers: 1, restarts: 0 },
+        Pod { namespace: "kube-system".into(), name: "coredns".into(), node: Some("worker-1".into()), phase: "Running".into(), reason: None, ready: 1, containers: 1, restarts: 1 },
     ];
     Ok(ClusterStatus {
         context: "demo".into(),
@@ -288,11 +290,22 @@ fn parse_pods(data: &Value) -> Result<Vec<Pod>, String> {
         } else {
             entry["status"]["phase"].as_str().unwrap_or("Unknown")
         };
+        // Pod phase is deliberately separate from container waiting reasons:
+        // a pod may be Running while a container is CrashLoopBackOff.
+        let reason = waiting_reason(entry["status"]["initContainerStatuses"].as_array())
+            .or_else(|| waiting_reason(statuses))
+            .or_else(|| entry["status"]["reason"].as_str().map(str::to_string))
+            .or_else(|| {
+                entry["status"]["conditions"].as_array().and_then(|conditions| {
+                    conditions.iter().find(|c| c["type"] == "PodScheduled" && c["status"] == "False")
+                }).and_then(|condition| condition["reason"].as_str()).map(str::to_string)
+            });
         result.push(Pod {
             namespace,
             name,
             node: entry["spec"]["nodeName"].as_str().map(str::to_string),
             phase: phase.into(),
+            reason,
             ready,
             containers,
             restarts,
@@ -300,6 +313,14 @@ fn parse_pods(data: &Value) -> Result<Vec<Pod>, String> {
     }
     result.sort_by(|a, b| (&a.namespace, &a.name).cmp(&(&b.namespace, &b.name)));
     Ok(result)
+}
+
+fn waiting_reason(statuses: Option<&Vec<Value>>) -> Option<String> {
+    statuses.and_then(|statuses| {
+        statuses.iter().find_map(|status| {
+            status["state"]["waiting"]["reason"].as_str().map(str::to_string)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -345,6 +366,36 @@ mod tests {
         assert_eq!(pods[0].ready, 1);
         assert_eq!(pods[0].containers, 2);
         assert_eq!(pods[0].restarts, 3);
+        assert!(pods[0].reason.is_none());
+    }
+
+    #[test]
+    fn pod_waiting_reason_surfaces_crash_loop_in_running_phase() {
+        let pods = parse_pods(&json!({"items": [{
+            "metadata": {"namespace": "agents", "name": "agent"},
+            "spec": {"containers": [{}]},
+            "status": {"phase": "Running", "containerStatuses": [{
+                "ready": false,
+                "restartCount": 12,
+                "state": {"waiting": {"reason": "CrashLoopBackOff"}}
+            }]}
+        }]})).unwrap();
+        assert_eq!(pods[0].phase, "Running");
+        assert_eq!(pods[0].reason.as_deref(), Some("CrashLoopBackOff"));
+        assert_eq!(pods[0].restarts, 12);
+    }
+
+    #[test]
+    fn unschedulable_pod_preserves_pending_phase_and_reason() {
+        let pods = parse_pods(&json!({"items": [{
+            "metadata": {"namespace": "agents", "name": "blocked"},
+            "spec": {"containers": [{}]},
+            "status": {"phase": "Pending", "conditions": [{
+                "type": "PodScheduled", "status": "False", "reason": "Unschedulable"
+            }]}
+        }]})).unwrap();
+        assert_eq!(pods[0].phase, "Pending");
+        assert_eq!(pods[0].reason.as_deref(), Some("Unschedulable"));
     }
 
     #[test]
