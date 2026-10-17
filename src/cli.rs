@@ -11,15 +11,22 @@ use crate::api::{
 use crate::util;
 
 pub fn kubernetes(cluster: &crate::kubernetes::ClusterStatus) -> String {
-    let ready = cluster.nodes.iter().filter(|n| n.ready == "Ready").count();
-    let mut out = format!("Kubernetes: {}  ·  pods: {}\n{} nodes ({} ready), {} pods\n", cluster.context, cluster.namespace, cluster.nodes.len(), ready, cluster.pods.len());
-    if !cluster.nodes.is_empty() {
-        let rows: Vec<Vec<String>> = cluster.nodes.iter().map(|n| vec![n.name.clone(), n.ready.clone()]).collect();
+    let node_summary = match &cluster.nodes {
+        Some(nodes) => format!("{} nodes ({} ready)", nodes.len(), nodes.iter().filter(|n| n.ready == "Ready").count()),
+        None => "nodes unavailable".into(),
+    };
+    let pod_summary = match &cluster.pods {
+        Some(pods) => format!("{} pods", pods.len()),
+        None => "pods unavailable".into(),
+    };
+    let mut out = format!("Kubernetes: {}  ·  pods: {}\n{}, {}\n", cluster.context, cluster.namespace, node_summary, pod_summary);
+    if let Some(nodes) = cluster.nodes.as_ref().filter(|nodes| !nodes.is_empty()) {
+        let rows: Vec<Vec<String>> = nodes.iter().map(|n| vec![n.name.clone(), n.ready.clone()]).collect();
         out.push_str("\nNodes:\n");
         out.push_str(&table(&["NODE", "STATUS"], &rows));
     }
-    if !cluster.pods.is_empty() {
-        let rows: Vec<Vec<String>> = cluster.pods.iter().map(|p| vec![p.namespace.clone(), p.name.clone(), p.node.clone().unwrap_or_else(|| "—".into()), p.phase.clone(), format!("{}/{}", p.ready, p.containers), p.restarts.to_string()]).collect();
+    if let Some(pods) = cluster.pods.as_ref().filter(|pods| !pods.is_empty()) {
+        let rows: Vec<Vec<String>> = pods.iter().map(|p| vec![p.namespace.clone(), p.name.clone(), p.node.clone().unwrap_or_else(|| "—".into()), p.phase.clone(), format!("{}/{}", p.ready, p.containers), p.restarts.to_string()]).collect();
         out.push_str("\nPods:\n");
         out.push_str(&table(&["NAMESPACE", "POD", "NODE", "PHASE", "READY", "RESTARTS"], &rows));
     }

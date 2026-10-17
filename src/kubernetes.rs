@@ -28,8 +28,9 @@ pub struct Pod {
 pub struct ClusterStatus {
     pub context: String,
     pub namespace: String,
-    pub nodes: Vec<Node>,
-    pub pods: Vec<Pod>,
+    /// None means this list could not be read; Some([]) means it was empty.
+    pub nodes: Option<Vec<Node>>,
+    pub pods: Option<Vec<Pod>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
@@ -65,29 +66,38 @@ pub async fn inspect(context: Option<&str>, namespace: Option<&str>) -> Result<C
         kubectl_json(&selected, &pod_args),
     );
 
-    // Namespace-limited RBAC commonly denies node listing. Keep the useful
-    // results and explain what could not be read instead of claiming zero nodes.
+    build_status(selected, namespace, node_result, pod_result)
+}
+
+/// A denied or malformed resource list is unavailable, never an empty list.
+/// Namespace-scoped readers may inspect pods without permission to list nodes.
+fn build_status(
+    context: String,
+    namespace: Option<&str>,
+    node_result: Result<Value, String>,
+    pod_result: Result<Value, String>,
+) -> Result<ClusterStatus, String> {
     let mut warnings = Vec::new();
-    let nodes = match node_result {
-        Ok(data) => parse_nodes(&data)?,
+    let nodes = match node_result.and_then(|value| parse_nodes(&value)) {
+        Ok(nodes) => Some(nodes),
         Err(err) => {
             warnings.push(format!("Nodes: {err}"));
-            Vec::new()
+            None
         }
     };
-    let pods = match pod_result {
-        Ok(data) => parse_pods(&data)?,
+    let pods = match pod_result.and_then(|value| parse_pods(&value)) {
+        Ok(pods) => Some(pods),
         Err(err) => {
             warnings.push(format!("Pods: {err}"));
-            Vec::new()
+            None
         }
     };
-    if warnings.len() == 2 {
+    if nodes.is_none() && pods.is_none() {
         return Err(warnings.join("\n"));
     }
 
     Ok(ClusterStatus {
-        context: selected,
+        context,
         namespace: namespace.unwrap_or("all").to_string(),
         nodes,
         pods,
@@ -117,11 +127,11 @@ pub fn demo_status(context: Option<&str>, namespace: Option<&str>) -> Result<Clu
     Ok(ClusterStatus {
         context: "demo".into(),
         namespace: namespace.unwrap_or("all").into(),
-        nodes: vec![
+        nodes: Some(vec![
             Node { name: "control-1".into(), ready: "Ready".into() },
             Node { name: "worker-1".into(), ready: "Ready".into() },
-        ],
-        pods: pods.into_iter().filter(|pod| namespace.is_none_or(|n| n == pod.namespace)).collect(),
+        ]),
+        pods: Some(pods.into_iter().filter(|pod| namespace.is_none_or(|n| n == pod.namespace)).collect()),
         warnings: Vec::new(),
     })
 }
@@ -277,10 +287,54 @@ mod tests {
     fn demo_uses_only_sample_data_even_with_real_context_name() {
         let status = demo_status(Some("production"), Some("agents")).unwrap();
         assert_eq!(status.context, "demo");
-        assert_eq!(status.nodes.len(), 2);
-        assert_eq!(status.pods.len(), 1);
-        assert_eq!(status.pods[0].namespace, "agents");
+        assert_eq!(status.nodes.as_ref().unwrap().len(), 2);
+        assert_eq!(status.pods.as_ref().unwrap().len(), 1);
+        assert_eq!(status.pods.as_ref().unwrap()[0].namespace, "agents");
         assert!(demo_status(None, Some("--all-namespaces")).is_err());
+    }
+
+    #[test]
+    fn rbac_denial_is_not_an_empty_cluster() {
+        let status = build_status(
+            "lab".into(),
+            Some("agents"),
+            Err("nodes is forbidden".into()),
+            Ok(json!({"items": [{
+                "metadata": {"namespace": "agents", "name": "agent-1"},
+                "spec": {"containers": [{}]},
+                "status": {"phase": "Pending"}
+            }]})),
+        ).unwrap();
+        assert!(status.nodes.is_none());
+        assert_eq!(status.pods.as_ref().unwrap().len(), 1);
+        assert_eq!(status.warnings, vec!["Nodes: nodes is forbidden"]);
+
+        let serialized = serde_json::to_value(status).unwrap();
+        assert!(serialized["nodes"].is_null());
+        assert!(serialized["pods"].is_array());
+    }
+
+    #[test]
+    fn empty_list_and_invalid_json_are_different() {
+        let status = build_status(
+            "lab".into(), None,
+            Ok(json!({"items": []})),
+            Err("pods forbidden".into())
+        ).unwrap();
+        assert_eq!(status.nodes.as_ref().unwrap().len(), 0);
+        assert!(status.pods.is_none());
+        assert!(build_status(
+            "lab".into(), None,
+            Err("nodes forbidden".into()),
+            Err("pods forbidden".into()),
+        ).is_err());
+        let status = build_status(
+            "lab".into(), None,
+            Ok(json!({"items": []})),
+            Ok(json!({"items": {}})),
+        ).unwrap();
+        assert!(status.pods.is_none(), "malformed pods must be unavailable");
+        assert_eq!(status.warnings.len(), 1);
     }
 
     #[test]
