@@ -128,6 +128,69 @@ pub async fn kubernetes(engine: &Arc<Engine>, req: KubernetesRequest) -> ApiResu
     result.map_err(|message| ApiError::new("operation_failed", message))
 }
 
+
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct KubernetesEventsRequest {
+    pub context: Option<String>,
+    pub namespace: Option<String>,
+    pub limit: usize,
+}
+
+impl Default for KubernetesEventsRequest {
+    fn default() -> Self {
+        Self { context: None, namespace: None, limit: 100 }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct KubernetesLogsRequest {
+    pub context: Option<String>,
+    pub namespace: String,
+    pub pod: String,
+    pub container: Option<String>,
+    pub previous: bool,
+    pub tail: u32,
+    pub limit_bytes: u32,
+}
+
+impl Default for KubernetesLogsRequest {
+    fn default() -> Self {
+        Self { context: None, namespace: String::new(), pod: String::new(),
+            container: None, previous: false, tail: 100, limit_bytes: 131072 }
+    }
+}
+
+/// Deployments, StatefulSets, DaemonSets and Jobs (read-only).
+pub async fn kubernetes_workloads(engine: &Arc<Engine>, req: KubernetesRequest) -> ApiResult<crate::kubernetes::Workloads> {
+    let out = if engine.is_demo() {
+        crate::kubernetes::demo_workloads(req.namespace.as_deref())
+    } else {
+        crate::kubernetes::inspect_workloads(req.context.as_deref(), req.namespace.as_deref()).await
+    };
+    out.map_err(|e| ApiError::new("operation_failed", e))
+}
+
+pub async fn kubernetes_events(engine: &Arc<Engine>, req: KubernetesEventsRequest) -> ApiResult<crate::kubernetes::Events> {
+    let out = if engine.is_demo() {
+        crate::kubernetes::demo_events(req.namespace.as_deref(), req.limit)
+    } else {
+        crate::kubernetes::inspect_events(req.context.as_deref(), req.namespace.as_deref(), req.limit).await
+    };
+    out.map_err(|e| ApiError::new("operation_failed", e))
+}
+
+pub async fn kubernetes_logs(engine: &Arc<Engine>, req: KubernetesLogsRequest) -> ApiResult<crate::kubernetes::PodLogs> {
+    let out = if engine.is_demo() {
+        crate::kubernetes::demo_logs(&req.namespace, &req.pod, req.container.as_deref(), req.previous, req.tail, req.limit_bytes)
+    } else {
+        crate::kubernetes::inspect_logs(req.context.as_deref(), &req.namespace, &req.pod, req.container.as_deref(),
+            req.previous, req.tail, req.limit_bytes).await
+    };
+    out.map_err(|e| ApiError::new("operation_failed", e))
+}
+
 // ---------------------------------------------------------------------------
 // Requests. Doc comments here double as the tool documentation.
 

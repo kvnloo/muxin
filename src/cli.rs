@@ -10,6 +10,45 @@ use crate::api::{
 };
 use crate::util;
 
+pub fn kubernetes_workloads(view: &crate::kubernetes::Workloads) -> String {
+    let mut out = format!("Kubernetes {} · {}\n", view.context, view.namespace);
+    let rows: Vec<Vec<String>> = view.items.iter().map(|w| vec![
+        w.namespace.clone(), w.kind.clone(), w.name.clone(), format!("{}/{}", w.ready, w.desired),
+        w.available.map(|n| n.to_string()).unwrap_or_else(|| "—".into()),
+        w.active.map(|n| n.to_string()).unwrap_or_else(|| "—".into()),
+        w.failed.map(|n| n.to_string()).unwrap_or_else(|| "—".into()),
+        if w.paused { "yes".into() } else { "no".into() },
+    ]).collect();
+    if rows.is_empty() {
+        out.push_str("No visible workloads.\n");
+    } else {
+        out.push_str(&table(&["NAMESPACE", "KIND", "NAME", "READY", "AVAILABLE", "ACTIVE", "FAILED", "PAUSED"], &rows));
+    }
+    for warning in &view.warnings {
+        out.push_str(&format!("Warning: {warning}\n"));
+    }
+    out
+}
+
+pub fn kubernetes_events(view: &crate::kubernetes::Events) -> String {
+    let rows: Vec<Vec<String>> = view.events.iter().map(|e| vec![
+        e.namespace.clone(), e.event_type.clone(), e.reason.clone(), format!("{}/{}", e.kind, e.object),
+        e.count.to_string(), e.last_seen.clone().unwrap_or_else(|| "—".into()), e.message.clone(),
+    ]).collect();
+    if rows.is_empty() {
+        return format!("No events visible in {} · {}.\n", view.context, view.namespace);
+    }
+    table(&["NAMESPACE", "TYPE", "REASON", "OBJECT", "COUNT", "LAST SEEN", "MESSAGE"], &rows)
+}
+
+pub fn kubernetes_logs(logs: &crate::kubernetes::PodLogs) -> String {
+    let mut out = logs.output.clone();
+    if logs.possibly_truncated {
+        out.push_str("\n(Output may be truncated at the requested byte limit.)\n");
+    }
+    out
+}
+
 pub fn kubernetes(cluster: &crate::kubernetes::ClusterStatus) -> String {
     let node_summary = match &cluster.nodes {
         Some(nodes) => format!("{} nodes ({} ready)", nodes.len(), nodes.iter().filter(|n| n.ready == "Ready").count()),

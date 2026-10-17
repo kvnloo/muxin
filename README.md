@@ -162,6 +162,23 @@ muxin k8s --namespace agents --json      # pods in one namespace
 
 The `kubernetes_status` MCP tool accepts optional `context` and `namespace` fields and returns the same node/pod inventory. Nodes include readiness, whether they're cordoned, CPU/memory allocatable values and architecture. Pods include container waiting reasons such as `CrashLoopBackOff` and scheduler reasons such as `Unschedulable`. Allocatable resources are **not** live free resources. Node or pod listing may be denied by your Kubernetes RBAC rules; in that case the other list is still returned with a warning. In JSON, an inaccessible list is `null`, not `[]` (which means readable but empty). No cluster write permissions are needed.
 
+### Workloads, events and logs (CLI and MCP)
+
+```sh
+muxin k8s --json --namespace agents workloads
+muxin k8s --json --namespace agents events --limit 50
+muxin k8s --json --namespace agents logs agent-worker --tail 100
+muxin k8s --namespace agents logs agent-worker --previous --container coder
+```
+
+The MCP tools `kubernetes_workloads`, `kubernetes_events`, and
+`kubernetes_logs` use the same contexts and read-only Kubernetes API.
+Workload inventory counts each controller's own readiness semantics (a Job's
+success count is not a Deployment's ready replica count). Denied resource
+kinds produce warnings rather than silently claiming none exist. Pod logs
+require an explicit namespace and are limited to at most 1 MiB per call.
+Pods may log credentials or private content: use scoped cluster credentials.
+
 This is inventory only. Pod-based workspaces, scheduling and UI integration are not implemented yet. A repeatable live K3s smoke test is in `scripts/test-k3s-inventory.sh` (requires Docker, k3d, kubectl, Rust and jq). The script creates a temporary cluster and kubeconfig and removes them afterward.
 
 **Access:** K3s's default `/etc/rancher/k3s/k3s.yaml` is an unrestricted cluster-admin credential. For agent-facing MCP use, prefer a dedicated, least-privilege kubeconfig permitting only the resource lists you intend to expose. Muxin does not read secrets, but pod names, namespaces and placement are still cluster metadata. Use `kubectl auth can-i list pods --all-namespaces` and `kubectl auth can-i list nodes` to check permissions.

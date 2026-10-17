@@ -290,6 +290,9 @@ async fn dispatch(engine: &Arc<Engine>, session: &Session, name: &str, a: Value)
         "list_jobs" => ok(api::jobs(engine, Surface::Mcp).await?),
         "check_machines" => ok(json!({ "machines": api::check(engine, args(a)?).await? })),
         "kubernetes_status" => ok(api::kubernetes(engine, args(a)?).await?),
+        "kubernetes_workloads" => ok(api::kubernetes_workloads(engine, args(a)?).await?),
+        "kubernetes_events" => ok(api::kubernetes_events(engine, args(a)?).await?),
+        "kubernetes_logs" => ok(api::kubernetes_logs(engine, args(a)?).await?),
         "add_machine" => ok(api::add_machine(engine, args(a)?, Surface::Mcp).await?),
         "remove_machine" => ok(json!({ "removed": api::remove_machine(engine, args(a)?).await? })),
         "rename_machine" => ok(json!({ "renamed": api::rename_machine(engine, args(a)?).await? })),
@@ -444,6 +447,39 @@ pub fn tools() -> Vec<Value> {
                 "namespace": { "type": "string", "description": "Only pods in this namespace (default: all namespaces)." }
             }), &[]),
             "annotations": annotations("Kubernetes cluster status", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_workloads",
+            "description": "Read-only deployments, StatefulSets, DaemonSets and Jobs in a K3s/Kubernetes cluster. Shows ready/requested replicas, active Jobs, and per-kind RBAC warnings. Requires existing kubeconfig. Never changes workloads.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string", "description": "Kubeconfig context; default current." },
+                "namespace": { "type": "string", "description": "Only this namespace; otherwise all namespaces." }
+            }), &[]),
+            "annotations": annotations("Kubernetes workloads", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_events",
+            "description": "Read-only recent cluster events from K3s/Kubernetes, optionally scoped to one namespace. Returns event reasons and relevant objects, up to 200 events, never follows an unbounded watch.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string", "description": "Kubeconfig context; default current." },
+                "namespace": { "type": "string", "description": "Namespace, otherwise all." },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 200, "description": "Most recent events; default 100." }
+            }), &[]),
+            "annotations": annotations("Kubernetes events", true, false, true, true),
+        }),
+        json!({
+            "name": "kubernetes_logs",
+            "description": "Read-only bounded pod logs, explicitly namespaced, optionally from a container or its previous instance. Pod log contents may contain application secrets; request only logs the user has authorized access to.",
+            "inputSchema": schema(json!({
+                "context": { "type": "string", "description": "Kubeconfig context; default current." },
+                "namespace": { "type": "string", "description": "Required namespace for the pod." },
+                "pod": { "type": "string", "description": "Pod name (not a selector or deployment)." },
+                "container": { "type": "string", "description": "Container name if the pod has several." },
+                "previous": { "type": "boolean", "description": "Previous crashed container instance." },
+                "tail": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Default 100 lines." },
+                "limit_bytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "description": "Default 131072 bytes." }
+            }), &["namespace","pod"]),
+            "annotations": annotations("Kubernetes pod logs", true, false, true, true),
         }),
         json!({
             "name": "add_machine",
@@ -1224,7 +1260,7 @@ mod tests {
     #[test]
     fn tool_schemas_are_well_formed() {
         let tools = tools();
-        assert_eq!(tools.len(), 90);
+        assert_eq!(tools.len(), 93);
         let mut names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         names.sort();
         names.dedup();
